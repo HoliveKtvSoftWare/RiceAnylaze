@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 current_active_user = fastapi_users.current_user(active=True)
 
-@router.get("/history")1
+@router.get("/history")
 async def get_analysis_history(
     request: Request,
     user: UserTable = Depends(current_active_user),
