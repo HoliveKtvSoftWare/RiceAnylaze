@@ -4,22 +4,22 @@ import os
 import logging
 from datetime import datetime
 
-# 1. 导入我们重构后的、健壮的服务模块
+# 导入我们重构后的、健壮的服务模块
 from app.services.yolo_inference import run_system
 
-# 2. 导入数据库相关的工具
+# 导入数据库相关的工具
 from sqlmodel import create_engine, Session, select
 from app.core.config import settings
 from app.models.analysis import Analysis
 
-# 3. 设置日志
+# 设置日志
 log = logging.getLogger(__name__)
 
-# 4. 创建一个同步的数据库引擎
+# 创建一个同步的数据库引擎
 sync_db_url = settings.DATABASE_URL.replace("+asyncpg", "")
 sync_engine = create_engine(sync_db_url, echo=False)
 
-# 【检查点 1】确认函数定义包含了 original_filename: str
+# 确认函数定义包含了 original_filename: str
 def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, original_filename: str):
     """
     后台任务主函数，使用原始文件名进行输出。

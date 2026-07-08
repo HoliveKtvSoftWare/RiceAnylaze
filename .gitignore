@@ -1,2 +1,5 @@
 # 推送时忽略模型文件
 /models_yolo/
+
+# 推送时忽略个人数据
+/app_storage/
