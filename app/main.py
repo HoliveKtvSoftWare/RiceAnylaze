@@ -11,7 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api.endpoints import analysis_router as analysis_router
 from app.api.endpoints import excel_router as excel_router
-from app.auth.core import fastapi_users # <-- 从 core.py 导入
+from app.api.endpoints import export_router  # 🆕 新增这行导入
+from app.auth.core import fastapi_users
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,6 +59,9 @@ app.include_router(analysis_router.router, prefix="/api/analysis", tags=["Analys
 
 # 挂载Excel导出路由
 app.include_router(excel_router.router, prefix="/api/excel", tags=["Excel"])
+
+# 🆕 挂载JSON导出路由（新增这行）
+app.include_router(export_router.router, tags=["Export"])
 
 # 配置静态文件
 static_dir = settings.STORAGE_PATH
