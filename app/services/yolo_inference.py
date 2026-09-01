@@ -18,7 +18,7 @@ def image_to_base64(image_path):
         image_path: 图片文件的绝对路径
 
     Returns:
-        base64 编码后的字符串（utf-8 解码）
+        base64 编码后的字符串
     """
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
@@ -26,12 +26,12 @@ def image_to_base64(image_path):
 
 def smooth_polygon_chaikin(points, iterations=2):
     """
-    Chaikin 角点切割算法：对每条边插入两个新点（1/4 和 3/4 位置），
+    Chaikin 角点切割算法：对每条边插入两个新点，
     将一条边拆分为两条边，使多边形边缘更加平滑。
 
     Args:
         points: 多边形顶点列表，格式 [[x1, y1], [x2, y2], ...]
-        iterations: 迭代次数，默认 2 次（点数会放大 4 倍）
+        iterations: 迭代次数，默认 2 次
 
     Returns:
         平滑后的多边形顶点列表
@@ -90,8 +90,8 @@ def smooth_polygon_spline(points, num_points=None, smooth_factor=0.1):
 
     Args:
         points: 多边形顶点列表
-        num_points: 输出点数，默认自动计算（原始点数的 3 倍，最少 32）
-        smooth_factor: 平滑因子，值越大越平滑（0 = 穿过所有原始点）
+        num_points: 输出点数，默认自动计算
+        smooth_factor: 平滑因子，值越大越平滑
 
     Returns:
         平滑后的多边形顶点列表
@@ -119,14 +119,14 @@ def smooth_polygon_spline(points, num_points=None, smooth_factor=0.1):
 def smooth_polygon(points, method='chaikin', iterations=2):
     """
     多边形平滑主入口，支持三种方法：
-    1. 'chaikin'  - Chaikin 角点切割（推荐，效果自然，迭代 2 次即可）
+    1. 'chaikin'  - Chaikin 角点切割
     2. 'midpoint' - 中点细分（最简单，边缘保持直线但更密集）
     3. 'spline'   - B 样条插值（最平滑，曲线最自然）
 
     Args:
         points: 原始多边形顶点列表 [[x, y], ...]
         method: 平滑方法选择，可选 'chaikin'、'midpoint'、'spline'
-        iterations: 迭代次数或细分级数（具体含义取决于 method 参数）
+        iterations: 迭代次数或细分级数
 
     Returns:
         平滑后的多边形顶点列表
@@ -151,8 +151,8 @@ def convert_to_labelme_format(image_path, image_size, masks_list, labels_list, n
 
     Args:
         image_path: 原图路径，用于读取图片数据和提取文件名
-        image_size: 原图尺寸 (width, height)
-        masks_list: 掩码坐标列表（来自 masks.xy），每个元素为一组多边形点
+        image_size: 原图尺寸
+        masks_list: 掩码坐标列表，每个元素为一组多边形点
         labels_list: 标签索引列表，每个元素对应 masks_list 中的类别索引
         names: 类别名称字典，键为索引，值为类别名称
         smooth: 是否对多边形边缘进行平滑处理，默认 True
@@ -264,10 +264,10 @@ def run_system(model_path, image_path, output_path, output_basename,
         model_path: YOLO 模型权重文件路径
         image_path: 输入图片的路径
         output_path: 输出目录路径
-        output_basename: 输出文件名（不含扩展名），JSON 和 JPG 文件均使用此名称
+        output_basename: 输出文件名，JSON 和 JPG 文件均使用此名称
         smooth: 是否对多边形边缘进行平滑处理，默认 True
         smooth_method: 平滑方法，可选 'chaikin'、'midpoint'、'spline'
-        smooth_iterations: 平滑迭代次数（越大越平滑），默认 2
+        smooth_iterations: 平滑迭代次数，默认 2
 
     Returns:
         元组 (output_image_path, json_output_path)，分别为输出图片和 JSON 文件的完整路径
