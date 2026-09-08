@@ -76,6 +76,8 @@ async def get_analysis_history(
 
         history_with_urls.append({
             "analysisId": record.analysis_id,
+            "batchId": str(record.batch_id) if record.batch_id else None,
+            "batchIndex": record.batch_index,
             "createdAt": record.created_at,
             "status": record.status,
             "originalFilename": original_filename,
@@ -302,3 +304,70 @@ async def delete_analysis(
     except Exception as e:
         log.error(f"删除分析记录时发生错误: {e}")
         raise HTTPException(status_code=500, detail="删除分析记录时发生错误")
+
+
+@router.post("/delete/batch")
+async def delete_analyses_batch(
+    request_data: Dict[str, List[str]] = Body(...),
+    user: UserTable = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session)
+):
+    """
+    批量删除分析记录
+    请求体: { "analysisIds": ["id1", "id2", "id3"] }
+    """
+    try:
+        analysis_ids = request_data.get("analysisIds", [])
+        if not analysis_ids:
+            raise HTTPException(status_code=400, detail="请传入 analysisIds 列表")
+
+        log.info(f"用户 {user.id} 请求批量删除 {len(analysis_ids)} 条分析记录")
+
+        statement = select(Analysis).where(
+            Analysis.analysis_id.in_(analysis_ids),
+            Analysis.user_id == user.id
+        )
+        result = await db.execute(statement)
+        analyses = result.scalars().all()
+
+        if not analyses:
+            raise HTTPException(status_code=404, detail="没有找到可删除的分析记录")
+
+        deleted_count = 0
+        skipped_ids = []
+
+        for analysis in analyses:
+            try:
+                files_to_delete = [
+                    analysis.original_file_path,
+                    analysis.annotated_image_path,
+                    analysis.result_json_path
+                ]
+                for file_path in files_to_delete:
+                    if file_path and os.path.exists(file_path):
+                        try:
+                            os.remove(file_path)
+                        except Exception as e:
+                            log.error(f"删除文件 {file_path} 时出错: {e}")
+
+                await db.delete(analysis)
+                deleted_count += 1
+            except Exception as e:
+                log.error(f"删除分析记录 {analysis.analysis_id} 时出错: {e}")
+                skipped_ids.append(str(analysis.analysis_id))
+
+        await db.commit()
+        log.info(f"批量删除完成: 成功 {deleted_count} 条, 跳过 {len(skipped_ids)} 条")
+
+        return {
+            "message": f"成功删除 {deleted_count} 条记录",
+            "deleted_count": deleted_count,
+            "total_requested": len(analysis_ids),
+            "skipped_ids": skipped_ids
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"批量删除时发生错误: {e}")
+        raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")

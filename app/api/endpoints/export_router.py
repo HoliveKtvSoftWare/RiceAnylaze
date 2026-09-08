@@ -2,7 +2,7 @@
 导出API端点 - 异步版本
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,8 @@ import json
 import logging
 from datetime import datetime
 import io
+from typing import List, Optional
+from pydantic import BaseModel
 
 from app.database.session import get_async_session
 from app.models.analysis import Analysis
@@ -19,6 +21,10 @@ from app.auth.core import fastapi_users
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/export", tags=["Export"])
+
+
+class BatchJsonExportRequest(BaseModel):
+    analysisIds: Optional[List[str]] = None
 
 
 # ==================== 辅助服务函数 ====================
@@ -248,14 +254,25 @@ async def list_exportable_analyses(
 
 @router.post("/json/batch")
 async def export_batch_json(
-    analysis_ids,
+    analysis_ids_query: Optional[List[str]] = Query(None, alias="analysis_ids"),
+    request_data: Optional[BatchJsonExportRequest] = Body(default=None),
     user=Depends(fastapi_users.current_user(active=True)),
     session: AsyncSession = Depends(get_async_session)
 ):
     """
     批量导出多个分析结果的JSON文件（返回ZIP压缩包）
+    支持两种调用方式：
+    1. Query 参数: POST /json/batch?analysis_ids=id1&analysis_ids=id2
+    2. Body JSON:  { "analysisIds": ["id1", "id2"] }
     """
     import zipfile
+
+    if request_data and request_data.analysisIds:
+        analysis_ids = request_data.analysisIds
+    elif analysis_ids_query:
+        analysis_ids = analysis_ids_query
+    else:
+        raise HTTPException(status_code=422, detail="请通过 query(analysis_ids) 或 body(analysisIds) 传入要导出的ID列表")
 
     try:
         log.info("用户 {} 请求批量导出: {} 个文件".format(user.id, len(analysis_ids)))

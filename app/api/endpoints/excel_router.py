@@ -18,6 +18,13 @@ class ExportRequest(BaseModel):
     unit: str = "um"
     scale: float = 500.0
 
+
+class BatchExportRequest(BaseModel):
+    analysisIds: List[str]
+    selectedColumns: List[str]
+    unit: str = "um"
+    scale: float = 500.0
+
 log = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -88,6 +95,61 @@ async def export_all_analysis_to_excel(
     except Exception as e:
         log.error(f"导出所有分析记录时发生错误: {e}")
         raise HTTPException(status_code=500, detail=f"导出所有分析记录失败: {str(e)}")
+
+
+@router.post("/batch")
+async def export_batch_to_excel(
+        request_data: BatchExportRequest = Body(...),
+        user: UserTable = Depends(current_active_user),
+        db: AsyncSession = Depends(get_async_session)
+):
+    try:
+        analysis_ids = request_data.analysisIds
+        selected_columns = request_data.selectedColumns
+        unit = request_data.unit
+        scale = request_data.scale
+        log.info(f"用户 {user.id} 请求批量导出 {len(analysis_ids)} 个分析记录，选择的列: {selected_columns}")
+
+        statement = select(Analysis).where(
+            Analysis.analysis_id.in_(analysis_ids),
+            Analysis.user_id == user.id,
+            Analysis.status == "completed"
+        )
+
+        result = await db.execute(statement)
+        analyses = result.scalars().all()
+
+        if not analyses:
+            raise HTTPException(status_code=404, detail="没有找到有效的已完成分析记录")
+
+        valid_analysis_data = []
+        for analysis in analyses:
+            try:
+                analysis_data = excel_service.load_analysis_data(str(analysis.analysis_id), str(user.id), unit, scale)
+                valid_analysis_data.append(analysis_data)
+            except Exception as e:
+                log.warning(f"批量导出中加载分析数据失败 {analysis.analysis_id}: {e}")
+                continue
+
+        if not valid_analysis_data:
+            raise HTTPException(status_code=404, detail="没有成功加载任何分析数据")
+
+        excel_file = excel_service.export_all_to_excel(valid_analysis_data, selected_columns)
+
+        log.info(f"批量导出Excel成功，包含 {len(valid_analysis_data)} 个样本")
+
+        return {
+            "filename": f"批量导出_{len(valid_analysis_data)}条_{datetime.now().strftime('%Y.%m.%d_%H:%M')}.xlsx",
+            "content": base64.b64encode(excel_file.getvalue()).decode('utf-8'),
+            "total_samples": len(valid_analysis_data),
+            "message": f"成功导出 {len(valid_analysis_data)} 个分析记录"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"批量导出Excel时发生错误: {e}")
+        raise HTTPException(status_code=500, detail=f"批量导出失败: {str(e)}")
 
 
 @router.post("/{analysis_id}")
