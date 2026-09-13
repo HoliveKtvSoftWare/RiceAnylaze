@@ -3,15 +3,17 @@ import json
 import pandas as pd
 import logging
 import math
+import cv2
+import numpy as np
 from datetime import datetime
 from typing import List, Dict, Any
 from fastapi import HTTPException
-from io import BytesIO
-from sqlmodel import create_engine, Session, select
+from sqlmodel import create_engine, Session
 from app.core.config import settings
 from app.models.analysis import Analysis
 
 log = logging.getLogger(__name__)
+
 
 class ExcelDownloadService:
     def __init__(self):
@@ -33,7 +35,7 @@ class ExcelDownloadService:
             "smallCountPerimeterRatio": "小维管束数目与茎秆周长比值",
             "largeCountPerimeterCavityRatio": "大维管束数目与茎秆周长与空腔面积差值比值"
         }
-        
+
         self.unit_conversion = {
             "um": 1.0,
             "μm": 1.0,
@@ -41,155 +43,220 @@ class ExcelDownloadService:
             "cm": 10000.0
         }
 
+        sync_db_url = settings.DATABASE_URL.replace("+asyncpg", "")
+        self._sync_engine = create_engine(sync_db_url, echo=False)
+
     def get_available_columns(self) -> Dict[str, str]:
         return self.available_columns
 
-    def load_analysis_data(self, analysis_id: str, user_id: str, unit: str = "um", scale: float = 500.0) -> Dict[str, Any]:
-        try:
-            sync_db_url = settings.DATABASE_URL.replace("+asyncpg", "")
-            sync_engine = create_engine(sync_db_url, echo=False)
+    def _compute_from_paths(self, original_file_path: str, json_file_path: str, unit: str, scale: float) -> Dict[str, Any]:
+        with open(json_file_path, 'r', encoding='utf-8') as f:
+            analysis_data = json.load(f)
 
-            with Session(sync_engine) as session:
-                statement = select(Analysis).where(Analysis.analysis_id == analysis_id)
+        img_h = analysis_data.get("imageHeight", 0)
+        img_w = analysis_data.get("imageWidth", 0)
+
+        base_info = {
+            "filename": os.path.basename(json_file_path).replace('.json', '')
+        }
+
+        shapes = analysis_data.get("shapes", [])
+
+        large_tail_shapes = []
+        small_tail_shapes = []
+        out_points = None
+        in_points = None
+
+        for shape in shapes:
+            label = shape.get("label", "unknown")
+            points = shape.get("points", [])
+            area = self._calculate_shape_area(points)
+
+            if label == "big":
+                large_tail_shapes.append({"area": area})
+            elif label == "small":
+                small_tail_shapes.append({"area": area})
+            elif label == "out":
+                out_points = points
+            elif label == "in":
+                in_points = points
+
+        large_tail_count = len(large_tail_shapes)
+        small_tail_count = len(small_tail_shapes)
+        total_count = large_tail_count + small_tail_count
+
+        large_tail_area_pixel = sum(shape["area"] for shape in large_tail_shapes)
+        small_tail_area_pixel = sum(shape["area"] for shape in small_tail_shapes)
+
+        stem_area_pixel = 0.0
+        stem_perimeter_pixel = 0.0
+        stem_diameter_pixel = 0.0
+        cavity_area_pixel = 0.0
+
+        if out_points and img_h > 0 and img_w > 0:
+            stem_area_pixel, stem_perimeter_pixel = self._label_binarize(img_h, img_w, out_points)
+            try:
+                out_pts = np.array(out_points, dtype=np.int32)
+                (_, _), radius = cv2.minEnclosingCircle(out_pts)
+                stem_diameter_pixel = radius * 2.0
+            except Exception:
+                stem_diameter_pixel = self._calculate_diameter_from_area(stem_area_pixel)
+        elif out_points:
+            stem_area_pixel = self._calculate_shape_area(out_points)
+            stem_perimeter_pixel = self._calculate_perimeter_from_area(stem_area_pixel)
+            stem_diameter_pixel = self._calculate_diameter_from_area(stem_area_pixel)
+
+        if in_points and img_h > 0 and img_w > 0:
+            cavity_area_pixel, _ = self._label_binarize(img_h, img_w, in_points)
+        elif in_points:
+            cavity_area_pixel = self._calculate_shape_area(in_points)
+
+        conversion_factor = self.unit_conversion.get(unit, 1.0)
+
+        scaling_ratio = 1.0
+        try:
+            if os.path.exists(original_file_path):
+                from PIL import Image
+                img = Image.open(original_file_path)
+                img_arr = np.array(img)
+                scaler = self._get_scaler(img_arr, img.height, img.width)
+                if scaler > 0:
+                    scaling_ratio = scale / scaler
+            else:
+                scaling_ratio = scale / 500.0
+        except Exception as e:
+            log.warning(f"读取原图检测标尺失败，使用默认比例: {e}")
+            scaling_ratio = scale / 500.0
+
+        stem_diameter = stem_diameter_pixel * scaling_ratio / conversion_factor
+        stem_perimeter = stem_perimeter_pixel * scaling_ratio / conversion_factor
+
+        area_scale_factor = scaling_ratio ** 2
+        large_tail_area = large_tail_area_pixel * area_scale_factor / (conversion_factor ** 2)
+        small_tail_area = small_tail_area_pixel * area_scale_factor / (conversion_factor ** 2)
+        stem_area = stem_area_pixel * area_scale_factor / (conversion_factor ** 2)
+        cavity_area = cavity_area_pixel * area_scale_factor / (conversion_factor ** 2)
+
+        stem_cavity_area_diff = stem_area - cavity_area
+        large_small_area_ratio = large_tail_area / small_tail_area if small_tail_area > 0 else 0
+        large_small_count_ratio = large_tail_count / small_tail_count if small_tail_count > 0 else 0
+        cavity_stem_area_ratio = cavity_area / stem_area if stem_area > 0 else 0
+        small_count_perimeter_ratio = small_tail_count / stem_perimeter if stem_perimeter > 0 else 0
+        large_count_perimeter_cavity_ratio = large_tail_count / stem_cavity_area_diff if stem_cavity_area_diff > 0 else 0
+
+        base_info.update({
+            "largeTailCount": large_tail_count,
+            "smallTailCount": small_tail_count,
+            "totalCount": total_count,
+            "largeTailArea": large_tail_area,
+            "smallTailArea": small_tail_area,
+            "stemDiameter": stem_diameter,
+            "stemPerimeter": stem_perimeter,
+            "cavityArea": cavity_area,
+            "stemCavityAreaDiff": stem_cavity_area_diff,
+            "largeSmallAreaRatio": large_small_area_ratio,
+            "largeSmallCountRatio": large_small_count_ratio,
+            "stemArea": stem_area,
+            "cavityStemAreaRatio": cavity_stem_area_ratio,
+            "smallCountPerimeterRatio": small_count_perimeter_ratio,
+            "largeCountPerimeterCavityRatio": large_count_perimeter_cavity_ratio
+        })
+
+        return base_info
+
+    def load_analysis_data_from_record(self, record: Analysis, unit: str = "um", scale: float = 500.0) -> Dict[str, Any]:
+        """
+        【优化版本】直接使用已查出的 Analysis 记录，跳过二次查库和 os.walk 遍历。
+        """
+        original_file_path = record.original_file_path
+        json_file_path = record.result_json_path
+
+        if not original_file_path or not os.path.exists(original_file_path):
+            raise HTTPException(status_code=404, detail=f"原始文件不存在: {original_file_path}")
+        if not json_file_path or not os.path.exists(json_file_path):
+            raise HTTPException(status_code=404, detail=f"分析结果文件不存在: {json_file_path}")
+
+        return self._compute_from_paths(original_file_path, json_file_path, unit, scale)
+
+    def load_analysis_data(self, analysis_id: str, user_id: str, unit: str = "um", scale: float = 500.0) -> Dict[str, Any]:
+        """
+        兼容旧接口：查库 + os.walk 兜底（用于单个导出端点）。
+        """
+        try:
+            from sqlmodel import select as _select
+            with Session(self._sync_engine) as session:
+                statement = _select(Analysis).where(Analysis.analysis_id == analysis_id)
                 result = session.exec(statement)
                 analysis_record = result.first()
 
-                if not analysis_record:
-                    raise HTTPException(status_code=404, detail="分析记录不存在")
+            if not analysis_record:
+                raise HTTPException(status_code=404, detail="分析记录不存在")
 
-                original_file_path = analysis_record.original_file_path
-                if not original_file_path:
-                    raise HTTPException(status_code=404, detail="原始文件路径不存在")
+            original_file_path = analysis_record.original_file_path
+            if not original_file_path:
+                raise HTTPException(status_code=404, detail="原始文件路径不存在")
 
+            json_file_path = analysis_record.result_json_path
+            if not json_file_path or not os.path.exists(json_file_path):
                 original_filename = os.path.basename(original_file_path)
                 sample_name_with_uuid = os.path.splitext(original_filename)[0]
-
                 if '_' in sample_name_with_uuid and len(sample_name_with_uuid.split('_')[0]) == 36:
                     sample_name = sample_name_with_uuid.split('_', 1)[1]
                 else:
                     sample_name = sample_name_with_uuid
 
-            user_data_dir = os.path.join("app_storage", "user_data", user_id)
-            if not os.path.exists(user_data_dir):
-                raise HTTPException(status_code=404, detail="用户数据目录不存在")
-
-            json_file_path = None
-
-            sample_dir = os.path.join(user_data_dir, sample_name)
-            if os.path.exists(sample_dir):
-                for file in os.listdir(sample_dir):
-                    if file.endswith('.json') and (sample_name in file or file.replace('.json', '') == sample_name):
-                        json_file_path = os.path.join(sample_dir, file)
-                        break
-
-            if not json_file_path:
+                user_data_dir = os.path.join(settings.STORAGE_PATH, str(user_id))
                 for root, dirs, files in os.walk(user_data_dir):
                     for file in files:
                         if file.endswith('.json'):
-                            full_path = os.path.join(root, file)
-                            json_filename_without_ext = file.replace('.json', '')
-                            if json_filename_without_ext == sample_name:
-                                json_file_path = full_path
-                                break
-                    if json_file_path:
+                            json_file_path = os.path.join(root, file)
+                            break
+                    if json_file_path and os.path.exists(json_file_path):
                         break
 
-            if not json_file_path:
-                for root, dirs, files in os.walk(user_data_dir):
-                    for file in files:
-                        if file.endswith('.json'):
-                            full_path = os.path.join(root, file)
-                            if sample_name in file:
-                                json_file_path = full_path
-                                break
-                    if json_file_path:
-                        break
+            if not json_file_path or not os.path.exists(json_file_path):
+                raise HTTPException(status_code=404, detail=f"分析结果文件不存在")
 
-            if not json_file_path:
-                raise HTTPException(status_code=404, detail=f"分析结果文件不存在, 样本名称: {sample_name}, 用户目录: {user_data_dir}")
+            return self._compute_from_paths(original_file_path, json_file_path, unit, scale)
 
-            with open(json_file_path, 'r', encoding='utf-8') as f:
-                analysis_data = json.load(f)
-
-            base_info = {
-                "filename": os.path.basename(json_file_path).replace('.json', '')
-            }
-
-            shapes = analysis_data.get("shapes", [])
-
-            large_tail_shapes = []
-            small_tail_shapes = []
-            out_shapes = []
-            in_shapes = []
-
-            for shape in shapes:
-                label = shape.get("label", "unknown")
-                area = self._calculate_shape_area(shape.get("points", []))
-
-                if label == "big":
-                    large_tail_shapes.append({"area": area})
-                elif label == "small":
-                    small_tail_shapes.append({"area": area})
-                elif label == "out":
-                    out_shapes.append({"area": area, "points": shape.get("points", [])})
-                elif label == "in":
-                    in_shapes.append({"area": area, "points": shape.get("points", [])})
-
-            large_tail_count = len(large_tail_shapes)
-            small_tail_count = len(small_tail_shapes)
-            total_count = large_tail_count + small_tail_count
-
-            large_tail_area_pixel = sum(shape["area"] for shape in large_tail_shapes)
-            small_tail_area_pixel = sum(shape["area"] for shape in small_tail_shapes)
-
-            stem_area_pixel = out_shapes[0]["area"] if out_shapes else 0
-            cavity_area_pixel = in_shapes[0]["area"] if in_shapes else 0
-
-            stem_diameter_pixel = self._calculate_diameter_from_area(stem_area_pixel)
-            stem_perimeter_pixel = self._calculate_perimeter_from_area(stem_area_pixel)
-
-            conversion_factor = self.unit_conversion.get(unit, 1.0)
-            
-            stem_diameter = stem_diameter_pixel * scale / conversion_factor
-            stem_perimeter = stem_perimeter_pixel * scale / conversion_factor
-            
-            area_scale_factor = scale ** 2
-            large_tail_area = large_tail_area_pixel * area_scale_factor / (conversion_factor ** 2)
-            small_tail_area = small_tail_area_pixel * area_scale_factor / (conversion_factor ** 2)
-            stem_area = stem_area_pixel * area_scale_factor / (conversion_factor ** 2)
-            cavity_area = cavity_area_pixel * area_scale_factor / (conversion_factor ** 2)
-
-            stem_cavity_area_diff = stem_area - cavity_area
-            large_small_area_ratio = large_tail_area / small_tail_area if small_tail_area > 0 else 0
-            large_small_count_ratio = large_tail_count / small_tail_count if small_tail_count > 0 else 0
-            cavity_stem_area_ratio = cavity_area / stem_area if stem_area > 0 else 0
-            small_count_perimeter_ratio = small_tail_count / stem_perimeter if stem_perimeter > 0 else 0
-            large_count_perimeter_cavity_ratio = large_tail_count / (
-                        stem_perimeter * stem_cavity_area_diff) if stem_perimeter > 0 and stem_cavity_area_diff > 0 else 0
-
-            base_info.update({
-                "largeTailCount": large_tail_count,
-                "smallTailCount": small_tail_count,
-                "totalCount": total_count,
-                "largeTailArea": large_tail_area,
-                "smallTailArea": small_tail_area,
-                "stemDiameter": stem_diameter,
-                "stemPerimeter": stem_perimeter,
-                "cavityArea": cavity_area,
-                "stemCavityAreaDiff": stem_cavity_area_diff,
-                "largeSmallAreaRatio": large_small_area_ratio,
-                "largeSmallCountRatio": large_small_count_ratio,
-                "stemArea": stem_area,
-                "cavityStemAreaRatio": cavity_stem_area_ratio,
-                "smallCountPerimeterRatio": small_count_perimeter_ratio,
-                "largeCountPerimeterCavityRatio": large_count_perimeter_cavity_ratio
-            })
-
-            return base_info
-
+        except HTTPException:
+            raise
         except Exception as e:
             log.error(f"加载分析数据失败: {e}")
             raise HTTPException(status_code=500, detail=f"加载分析数据失败: {str(e)}")
+
+    def _get_scaler(self, img_arr: np.ndarray, img_height: int, img_width: int) -> float:
+        try:
+            rd = img_arr[img_height // 2:, img_width // 2:, :]
+            red_mask = (rd[..., 0] >= 240) & (rd[..., 1] <= 20) & (rd[..., 2] <= 20)
+            blue_mask = (rd[..., 0] <= 20) & (rd[..., 1] <= 20) & (rd[..., 2] >= 240)
+            red_pixels = np.sum(red_mask, axis=1)
+            blue_pixels = np.sum(blue_mask, axis=1)
+            scaler = float(np.max(red_pixels + blue_pixels))
+            return scaler if scaler > 0 else 500.0
+        except Exception as e:
+            log.warning(f"检测标尺像素长度失败: {e}")
+            return 500.0
+
+    def _label_binarize(self, img_h: int, img_w: int, points: List[List[float]]) -> tuple:
+        if len(points) < 3:
+            return 0.0, 0.0
+        try:
+            binary_image = np.zeros((img_h, img_w), dtype=np.uint8)
+            pts = np.array(points, dtype=np.int32)
+            cv2.fillPoly(binary_image, [pts], 255)
+            kernel = np.ones((60, 60), np.uint8)
+            binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel)
+            area_pixel = float(np.count_nonzero(binary_image))
+            contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours and len(contours) > 0:
+                perimeter_pixel = float(cv2.arcLength(contours[0], True))
+            else:
+                perimeter_pixel = 0.0
+            return area_pixel, perimeter_pixel
+        except Exception as e:
+            log.warning(f"闭运算二值化失败: {e}")
+            return 0.0, 0.0
 
     def _calculate_shape_area(self, points: List[List[float]]) -> float:
         if len(points) < 3:
@@ -224,7 +291,7 @@ class ExcelDownloadService:
             if col in analysis_data:
                 value = analysis_data[col]
                 if isinstance(value, float):
-                    base_row[col] = round(value, 4)
+                    base_row[col] = round(value, 6)
                 else:
                     base_row[col] = value
             else:
@@ -237,12 +304,19 @@ class ExcelDownloadService:
 
         return df
 
-    def create_excel_file(self, df: pd.DataFrame, filename: str = None) -> BytesIO:
+    def create_excel_file(self, df: pd.DataFrame, filename: str = None) -> str:
+        """
+        【优化】将 Excel 保存到磁盘，返回文件路径（给后台任务 + 文件流下载用）。
+        """
         if filename is None:
             filename = f"{datetime.now().strftime('%Y.%m.%d_%H:%M')}.xlsx"
 
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        export_dir = os.path.join(settings.STORAGE_PATH, "_exports")
+        os.makedirs(export_dir, exist_ok=True)
+
+        file_path = os.path.join(export_dir, filename)
+
+        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='分析结果', index=False)
 
             worksheet = writer.sheets['分析结果']
@@ -258,10 +332,10 @@ class ExcelDownloadService:
                 adjusted_width = min(max_length + 2, 50)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
 
-        output.seek(0)
-        return output
+        log.info(f"Excel 文件已保存至: {file_path}")
+        return file_path
 
-    def export_all_to_excel(self, analysis_data_list: List[Dict[str, Any]], selected_columns: List[str]) -> BytesIO:
+    def export_all_to_excel(self, analysis_data_list: List[Dict[str, Any]], selected_columns: List[str], filename: str = None) -> str:
         invalid_columns = [col for col in selected_columns if col not in self.available_columns]
         if invalid_columns:
             raise HTTPException(status_code=400, detail=f"无效的列选择: {invalid_columns}")
@@ -273,7 +347,7 @@ class ExcelDownloadService:
                 if col in analysis_data:
                     value = analysis_data[col]
                     if isinstance(value, float):
-                        row[col] = round(value, 4)
+                        row[col] = round(value, 6)
                     else:
                         row[col] = value
                 else:
@@ -285,7 +359,9 @@ class ExcelDownloadService:
         column_mapping = {col: self.available_columns[col] for col in selected_columns}
         df = df.rename(columns=column_mapping)
 
-        filename = f"all_analysis_export_{len(analysis_data_list)}_samples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        if filename is None:
+            filename = f"export_{len(analysis_data_list)}_samples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         return self.create_excel_file(df, filename)
+
 
 excel_service = ExcelDownloadService()

@@ -13,6 +13,7 @@ from datetime import datetime
 import io
 from typing import List, Optional
 from pydantic import BaseModel
+from urllib.parse import quote
 
 from app.database.session import get_async_session
 from app.models.analysis import Analysis
@@ -29,27 +30,39 @@ class BatchJsonExportRequest(BaseModel):
 
 # ==================== 辅助服务函数 ====================
 
+def build_content_disposition(filename):
+    """构建支持非ASCII文件名的 Content-Disposition header (RFC 5987)"""
+    ascii_name = filename.encode('ascii', errors='ignore').decode('ascii') or 'download'
+    utf8_name = quote(filename)
+    return "attachment; filename={}; filename*=UTF-8''{}".format(ascii_name, utf8_name)
+
+
 def get_json_data(json_path):
     """读取JSON文件内容"""
     with open(json_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 
-def export_json_response(json_path, filename=None):
-    """将JSON文件转换为可下载的响应"""
+def export_json_response(json_path, original_filename=None):
+    """将JSON文件转换为可下载的响应，文件名格式为：导出时间_文件名.json"""
     data = get_json_data(json_path)
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
 
-    if filename is None:
-        filename = os.path.basename(json_path)
-    if not filename.endswith('.json'):
-        filename = filename + '.json'
+    if original_filename is None:
+        original_filename = os.path.basename(json_path)
+
+    name_without_ext = os.path.splitext(original_filename)[0]
+    if '_' in name_without_ext and len(name_without_ext.split('_')[0]) == 36:
+        name_without_ext = name_without_ext.split('_', 1)[1]
+
+    time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
+    filename = "{}_{}.json".format(time_str, name_without_ext)
 
     return StreamingResponse(
         io.BytesIO(json_str.encode('utf-8')),
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": "attachment; filename={}".format(filename),
+            "Content-Disposition": build_content_disposition(filename),
             "Content-Length": str(len(json_str))
         }
     )
@@ -123,13 +136,11 @@ async def export_analysis_json(
         if not analysis.result_json_path or not os.path.exists(analysis.result_json_path):
             raise HTTPException(status_code=404, detail="JSON文件不存在")
 
-        # ✅ 修复：使用 original_file_path 提取文件名
-        original_name = os.path.splitext(os.path.basename(analysis.original_file_path))[0]
-        filename = "{}_analysis.json".format(original_name)
+        original_filename = os.path.basename(analysis.original_file_path)
 
         return export_json_response(
             json_path=analysis.result_json_path,
-            filename=filename
+            original_filename=original_filename
         )
 
     except HTTPException:
@@ -294,10 +305,12 @@ async def export_batch_json(
         json_files = []
         for analysis in analyses:
             if analysis.result_json_path and os.path.exists(analysis.result_json_path):
+                raw_name = os.path.splitext(os.path.basename(analysis.original_file_path))[0]
+                if '_' in raw_name and len(raw_name.split('_')[0]) == 36:
+                    raw_name = raw_name.split('_', 1)[1]
                 json_files.append({
                     'path': analysis.result_json_path,
-                    # ✅ 修复：使用 basename 提取文件名
-                    'name': "{}.json".format(os.path.splitext(os.path.basename(analysis.original_file_path))[0])
+                    'name': "{}.json".format(raw_name)
                 })
 
         if not json_files:
@@ -313,16 +326,14 @@ async def export_batch_json(
 
         zip_buffer.seek(0)
 
-        zip_filename = "batch_export_{}files_{}.zip".format(
-            len(json_files),
-            datetime.now().strftime('%Y%m%d_%H%M%S')
-        )
+        time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
+        zip_filename = "{}_{}条记录.zip".format(time_str, len(json_files))
 
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
             headers={
-                "Content-Disposition": "attachment; filename={}".format(zip_filename)
+                "Content-Disposition": build_content_disposition(zip_filename)
             }
         )
 
