@@ -1,17 +1,24 @@
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r'Field "model_name" has conflict with protected namespace',
+    category=UserWarning,
+)
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from app.auth.backend import auth_backend
-from app.auth.manager import get_user_manager
-from app.models.user import UserTable
+
 from app.database.session import create_db_and_tables
 from app.auth.schemas import UserCreate, UserRead, UserUpdate
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api.endpoints import analysis_router as analysis_router
 from app.api.endpoints import excel_router as excel_router
-from app.api.endpoints import export_router  # 🆕 新增这行导入
+from app.api.endpoints import export_router
 from app.auth.core import fastapi_users
 
 

@@ -25,24 +25,12 @@ class ExportService:
     def export_json_response(
         self,
         json_path: str,
-        original_filename: Optional[str] = None
     ) -> StreamingResponse:
-        """将JSON文件转换为可下载的响应，文件名格式为：导出时间_文件名.json"""
         data = self.get_json_data(json_path)
         json_str = json.dumps(data, ensure_ascii=False, indent=2)
 
-        if original_filename is None:
-            original_filename = os.path.basename(json_path)
-
-        name_without_ext = os.path.splitext(original_filename)[0]
-        if '_' in name_without_ext and len(name_without_ext.split('_')[0]) == 36:
-            name_without_ext = name_without_ext.split('_', 1)[1]
-
-        time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
-        filename = f"{time_str}_{name_without_ext}.json"
-
-        ascii_name = filename.encode('ascii', errors='ignore').decode('ascii') or 'download'
-        utf8_name = quote(filename)
+        ascii_name = "export.json"
+        utf8_name = quote("export.json")
         content_disposition = f"attachment; filename={ascii_name}; filename*=UTF-8''{utf8_name}"
 
         return StreamingResponse(

@@ -20,8 +20,6 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 current_active_user = fastapi_users.current_user(active=True)
 
-_FILENAME_UNIT_LABEL = {"um": "μm", "μm": "μm", "mm": "mm", "cm": "cm"}
-
 _export_tasks: Dict[str, Dict[str, Any]] = {}
 _export_tasks_lock = threading.Lock()
 
@@ -98,12 +96,9 @@ async def export_all_analysis_to_excel(
             prefix="summary",
         )
 
-        time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
-        filename = f"{time_str}_{len(all_records)}条记录.xlsx"
-
         return FileResponse(
             path=file_path,
-            filename=filename,
+            filename="export.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
@@ -168,12 +163,9 @@ async def export_batch_to_excel(
             prefix="batch",
         )
 
-        time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
-        filename = f"{time_str}_{len(records)}条记录.xlsx"
-
         return FileResponse(
             path=file_path,
-            filename=filename,
+            filename="export.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
@@ -210,15 +202,9 @@ async def export_analysis_to_excel(
         df = excel_service.generate_excel_data(analysis_data, request_data.selectedColumns)
         file_path = excel_service.create_excel_file(df)
 
-        original_name = os.path.splitext(os.path.basename(analysis.original_file_path))[0]
-        if '_' in original_name and len(original_name.split('_')[0]) == 36:
-            original_name = original_name.split('_', 1)[1]
-        time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
-        filename = f"{time_str}_{original_name}.xlsx"
-
         return FileResponse(
             path=file_path,
-            filename=filename,
+            filename="export.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
@@ -354,15 +340,13 @@ def _run_export_worker(
                 _export_tasks[task_id]["error"] = "没有成功加载任何分析数据"
             return
 
-        time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
-        filename = f"{time_str}_{len(valid_data)}条记录.xlsx"
-        file_path = excel_service.export_all_to_excel(valid_data, selected_columns, filename)
+        file_path = excel_service.export_all_to_excel(valid_data, selected_columns)
 
         with _export_tasks_lock:
             if task_id in _export_tasks:
                 _export_tasks[task_id]["status"] = "completed"
                 _export_tasks[task_id]["file_path"] = file_path
-                _export_tasks[task_id]["filename"] = filename
+                _export_tasks[task_id]["filename"] = "export.xlsx"
                 _export_tasks[task_id]["progress"] = len(record_info_list)
 
         log.info(f"异步导出任务 {task_id} 完成: {file_path}（成功 {len(valid_data)}/{len(record_info_list)}）")

@@ -4,9 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import Field, SQLModel
-# 确保这里没有 'from app.models.analysis import Analysis' 这一行
+from pydantic import ConfigDict
+
 
 class Analysis(SQLModel, table=True):
+    model_config = ConfigDict(protected_namespaces=())
     __tablename__ = "analyses" # 定义数据库表名
 
     # --- 核心字段 ---
@@ -28,3 +30,9 @@ class Analysis(SQLModel, table=True):
     # --- 批量上传支持 ---
     batch_id: Optional[uuid.UUID] = Field(default=None, index=True) # 批次ID，用于批量上传
     batch_index: Optional[int] = Field(default=None) # 在批次中的序号
+
+    # --- 模型选择 ---
+    model_used: Optional[str] = Field(default=None) # 本次分析使用的模型名称
+
+    # --- 失败原因 ---
+    error_message: Optional[str] = Field(default=None) # 后台任务失败时的错误描述

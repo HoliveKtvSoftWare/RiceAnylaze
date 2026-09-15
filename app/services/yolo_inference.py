@@ -277,6 +277,13 @@ def run_system(model_path, image_path, output_path, output_basename,
     """
     try:
         log.info(f"开始推理任务... 模型: {model_path}, 图片: {image_path}")
+
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(
+                f"模型文件不存在: {model_path}\n"
+                f"请检查 .env 中 YOLO_MODELS 的配置，或确认该模型文件已放置到正确路径。"
+            )
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         log.info(f"使用的设备: {device}")
         model = YOLO(model_path).to(device)

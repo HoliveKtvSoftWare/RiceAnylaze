@@ -31,38 +31,25 @@ class BatchJsonExportRequest(BaseModel):
 # ==================== 辅助服务函数 ====================
 
 def build_content_disposition(filename):
-    """构建支持非ASCII文件名的 Content-Disposition header (RFC 5987)"""
     ascii_name = filename.encode('ascii', errors='ignore').decode('ascii') or 'download'
     utf8_name = quote(filename)
     return "attachment; filename={}; filename*=UTF-8''{}".format(ascii_name, utf8_name)
 
 
 def get_json_data(json_path):
-    """读取JSON文件内容"""
     with open(json_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 
-def export_json_response(json_path, original_filename=None):
-    """将JSON文件转换为可下载的响应，文件名格式为：导出时间_文件名.json"""
+def export_json_response(json_path):
     data = get_json_data(json_path)
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
-
-    if original_filename is None:
-        original_filename = os.path.basename(json_path)
-
-    name_without_ext = os.path.splitext(original_filename)[0]
-    if '_' in name_without_ext and len(name_without_ext.split('_')[0]) == 36:
-        name_without_ext = name_without_ext.split('_', 1)[1]
-
-    time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
-    filename = "{}_{}.json".format(time_str, name_without_ext)
 
     return StreamingResponse(
         io.BytesIO(json_str.encode('utf-8')),
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": build_content_disposition(filename),
+            "Content-Disposition": build_content_disposition("export.json"),
             "Content-Length": str(len(json_str))
         }
     )
@@ -136,11 +123,8 @@ async def export_analysis_json(
         if not analysis.result_json_path or not os.path.exists(analysis.result_json_path):
             raise HTTPException(status_code=404, detail="JSON文件不存在")
 
-        original_filename = os.path.basename(analysis.original_file_path)
-
         return export_json_response(
-            json_path=analysis.result_json_path,
-            original_filename=original_filename
+            json_path=analysis.result_json_path
         )
 
     except HTTPException:
@@ -305,12 +289,9 @@ async def export_batch_json(
         json_files = []
         for analysis in analyses:
             if analysis.result_json_path and os.path.exists(analysis.result_json_path):
-                raw_name = os.path.splitext(os.path.basename(analysis.original_file_path))[0]
-                if '_' in raw_name and len(raw_name.split('_')[0]) == 36:
-                    raw_name = raw_name.split('_', 1)[1]
                 json_files.append({
                     'path': analysis.result_json_path,
-                    'name': "{}.json".format(raw_name)
+                    'name': os.path.basename(analysis.result_json_path)
                 })
 
         if not json_files:
@@ -326,14 +307,11 @@ async def export_batch_json(
 
         zip_buffer.seek(0)
 
-        time_str = datetime.now().strftime('%Y.%m.%d_%H%M%S')
-        zip_filename = "{}_{}条记录.zip".format(time_str, len(json_files))
-
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
             headers={
-                "Content-Disposition": build_content_disposition(zip_filename)
+                "Content-Disposition": build_content_disposition("export.zip")
             }
         )
 

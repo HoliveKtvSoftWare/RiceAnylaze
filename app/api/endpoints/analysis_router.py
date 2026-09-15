@@ -2,7 +2,7 @@ from datetime import datetime
 import uuid
 import os
 import shutil
-from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, HTTPException, Body
+from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, HTTPException, Body, Form
 import logging
 from typing import List, Dict, Any, Optional
 from sqlmodel import select
@@ -20,6 +20,31 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 current_active_user = fastapi_users.current_user(active=True)
+
+def _validate_model(model_name: Optional[str]) -> None:
+    """
+    校验前端传的模型名是否在 .env 注册表中。
+    注意：不在此处检查文件是否存在，文件缺失会在后台任务中被捕获，
+    并记录为失败的分析历史，error_message 字段会写明失败原因。
+    """
+    available_models = settings.get_models_map()
+    if model_name is not None and model_name not in available_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未知模型 '{model_name}'，可用: {list(available_models.keys())}"
+        )
+
+@router.get("/models")
+async def get_available_models() -> Dict[str, Any]:
+    """
+    返回后端可用的 YOLO 模型列表，供前端渲染模型选择器。
+    """
+    models = settings.get_available_models()
+    default_name = settings.get_models_map().pop(list(settings.get_models_map().keys())[0]) if settings.get_models_map() else None
+    return {
+        "models": models,
+        "default": models[0]["name"] if models else None
+    }
 
 @router.get("/history")
 async def get_analysis_history(
@@ -80,6 +105,8 @@ async def get_analysis_history(
             "batchIndex": record.batch_index,
             "createdAt": record.created_at,
             "status": record.status,
+            "modelUsed": record.model_used,
+            "errorMessage": record.error_message,
             "originalFilename": original_filename,
             "originalImageUrl": path_to_url(record.original_file_path),
             "annotatedImageUrl": path_to_url(record.annotated_image_path),
@@ -92,13 +119,22 @@ async def get_analysis_history(
 async def upload_image(
     tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    model_name: Optional[str] = Form(None),
     user: UserTable = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session)
 ):
     """
     接收用户上传：保存文件，创建记录，提交后台任务。
     单文件上传时自动创建批次。
+
+    Form 字段:
+        file: 上传的图片文件
+        model_name: 用户选择的模型名称（对应 /models 返回的 name），可选；不传则使用默认模型
     """
+    log.info(f"收到上传请求: model_name={model_name}, file={file.filename}")
+
+    _validate_model(model_name)
+
     # 创建批次（单文件上传也创建批次，保持一致性）
     batch_uuid = uuid.uuid4()
     new_batch = UploadBatch(
@@ -137,7 +173,8 @@ async def upload_image(
         status="processing",
         original_file_path=saved_file_path,
         batch_id=batch_uuid,
-        batch_index=0
+        batch_index=0,
+        model_used=model_name if model_name else "default"
     )
     db.add(new_analysis)
     await db.commit()
@@ -151,7 +188,8 @@ async def upload_image(
             analysis_id=str(new_analysis.analysis_id),
             original_file_path=saved_file_path,
             user_id=str(user.id),
-            original_filename=unique_filename_base
+            original_filename=unique_filename_base,
+            model_name=model_name
         )
         log.debug(f"后台任务 run_full_analysis 添加成功 for analysis_id={new_analysis.analysis_id}")
     except Exception as e:
@@ -163,19 +201,29 @@ async def upload_image(
         "message": "文件已成功提交后台处理。",
         "analysis_id": new_analysis.analysis_id,
         "batch_id": batch_uuid,
-        "original_filename": file.filename
+        "original_filename": file.filename,
+        "model_used": model_name if model_name else "default"
     }
 
 @router.post("/upload/batch")
 async def upload_images_batch(
     tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
+    model_name: Optional[str] = Form(None),
     user: UserTable = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session)
 ):
     """
     批量上传图片：创建批次，保存文件，创建记录，提交后台任务。
+
+    Form 字段:
+        files: 多个上传的图片文件
+        model_name: 用户选择的模型名称，可选；不传则使用默认模型
     """
+    log.info(f"收到批量上传请求: model_name={model_name}, 文件数={len(files)}")
+
+    _validate_model(model_name)
+
     if not files:
         raise HTTPException(status_code=400, detail="未上传任何文件")
 
@@ -220,7 +268,8 @@ async def upload_images_batch(
             status="processing",
             original_file_path=saved_file_path,
             batch_id=batch_uuid,
-            batch_index=index
+            batch_index=index,
+            model_used=model_name if model_name else "default"
         )
         db.add(new_analysis)
         await db.commit()
@@ -234,7 +283,8 @@ async def upload_images_batch(
                 analysis_id=str(new_analysis.analysis_id),
                 original_file_path=saved_file_path,
                 user_id=str(user.id),
-                original_filename=unique_filename_base
+                original_filename=unique_filename_base,
+                model_name=model_name
             )
         except Exception as e:
             log.error(f"添加后台任务时发生错误: {e}", exc_info=True)
@@ -250,6 +300,7 @@ async def upload_images_batch(
         "message": f"{len(files)} 个文件已成功提交后台处理。",
         "batch_id": batch_uuid,
         "total_files": len(files),
+        "model_used": model_name if model_name else "default",
         "analyses": submitted_analyses
     }
 
