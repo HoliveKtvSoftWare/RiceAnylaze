@@ -1,10 +1,13 @@
 import uuid
 import os
+import re
 import threading
+import io
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 import logging
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -13,6 +16,34 @@ from app.models.user import UserTable
 from app.auth.db import get_async_session
 from app.models.analysis import Analysis
 from app.services.excel_download import excel_service
+
+def _extract_real_name(original_file_path: str) -> str:
+    basename = os.path.basename(original_file_path)
+    parts = basename.split('_', 1)
+    if len(parts) == 2 and len(parts[0]) == 36:
+        name_with_ext = parts[1]
+    else:
+        name_with_ext = basename
+    name_no_ext = os.path.splitext(name_with_ext)[0]
+    name_no_ext = re.sub(r'_\d{8}_\d{6}$', '', name_no_ext)
+    return name_no_ext
+
+def _build_cd(filename: str) -> str:
+    ascii_name = filename.encode('ascii', errors='ignore').decode('ascii') or 'download'
+    utf8_name = quote(filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+
+def _file_to_streaming_response(file_path: str, filename: str, media_type: str) -> StreamingResponse:
+    with open(file_path, 'rb') as f:
+        data = f.read()
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": _build_cd(filename),
+            "Content-Length": str(len(data))
+        }
+    )
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
@@ -88,7 +119,7 @@ async def export_all_analysis_to_excel(
                 "downloadUrl": f"/api/excel/download/{task_id}",
             }
 
-        file_path = _do_export(
+        file_path, filename = _do_export(
             records=all_records,
             selected_columns=request_data.selectedColumns,
             unit=request_data.unit,
@@ -96,11 +127,7 @@ async def export_all_analysis_to_excel(
             prefix="summary",
         )
 
-        return FileResponse(
-            path=file_path,
-            filename="export.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        return _file_to_streaming_response(file_path, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     except HTTPException:
         raise
@@ -155,7 +182,7 @@ async def export_batch_to_excel(
                 "downloadUrl": f"/api/excel/download/{task_id}",
             }
 
-        file_path = _do_export(
+        file_path, filename = _do_export(
             records=records,
             selected_columns=request_data.selectedColumns,
             unit=request_data.unit,
@@ -163,11 +190,7 @@ async def export_batch_to_excel(
             prefix="batch",
         )
 
-        return FileResponse(
-            path=file_path,
-            filename="export.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        return _file_to_streaming_response(file_path, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     except HTTPException:
         raise
@@ -200,13 +223,14 @@ async def export_analysis_to_excel(
 
         analysis_data = excel_service.load_analysis_data_from_record(analysis, request_data.unit, request_data.scale)
         df = excel_service.generate_excel_data(analysis_data, request_data.selectedColumns)
-        file_path = excel_service.create_excel_file(df)
 
-        return FileResponse(
-            path=file_path,
-            filename="export.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        real_name = _extract_real_name(analysis.original_file_path)
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"茎秆_{real_name}_{now_str}_{request_data.unit}.xlsx"
+
+        file_path = excel_service.create_excel_file(df, filename)
+
+        return _file_to_streaming_response(file_path, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     except HTTPException:
         raise
@@ -250,11 +274,8 @@ async def download_export_task(task_id: str):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="文件已丢失或被清理")
 
-    return FileResponse(
-        path=file_path,
-        filename=task.get("filename") or os.path.basename(file_path),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    dl_name = task.get("filename") or os.path.basename(file_path)
+    return _file_to_streaming_response(file_path, dl_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def _submit_async_export(
@@ -340,13 +361,15 @@ def _run_export_worker(
                 _export_tasks[task_id]["error"] = "没有成功加载任何分析数据"
             return
 
-        file_path = excel_service.export_all_to_excel(valid_data, selected_columns)
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"茎秆_{len(valid_data)}个文件_{now_str}_{unit}.xlsx"
+        file_path = excel_service.export_all_to_excel(valid_data, selected_columns, filename)
 
         with _export_tasks_lock:
             if task_id in _export_tasks:
                 _export_tasks[task_id]["status"] = "completed"
                 _export_tasks[task_id]["file_path"] = file_path
-                _export_tasks[task_id]["filename"] = "export.xlsx"
+                _export_tasks[task_id]["filename"] = filename
                 _export_tasks[task_id]["progress"] = len(record_info_list)
 
         log.info(f"异步导出任务 {task_id} 完成: {file_path}（成功 {len(valid_data)}/{len(record_info_list)}）")
@@ -359,7 +382,7 @@ def _run_export_worker(
                 _export_tasks[task_id]["error"] = str(e)
 
 
-def _do_export(records: list, selected_columns: List[str], unit: str, scale: float, prefix: str = "export") -> str:
+def _do_export(records: list, selected_columns: List[str], unit: str, scale: float, prefix: str = "export") -> tuple:
     valid_data = []
     for record in records:
         try:
@@ -372,7 +395,8 @@ def _do_export(records: list, selected_columns: List[str], unit: str, scale: flo
     if not valid_data:
         raise HTTPException(status_code=404, detail="没有成功加载任何分析数据")
 
-    filename = f"{prefix}_{len(valid_data)}_samples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"茎秆_{len(valid_data)}个文件_{now_str}_{unit}.xlsx"
     file_path = excel_service.export_all_to_excel(valid_data, selected_columns, filename)
     log.info(f"Excel 导出完成: {file_path}（成功 {len(valid_data)}/{len(records)}）")
-    return file_path
+    return file_path, filename

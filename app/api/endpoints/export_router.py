@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
+import re
 import json
 import logging
 from datetime import datetime
@@ -20,6 +21,17 @@ from app.models.analysis import Analysis
 from app.auth.core import fastapi_users
 
 log = logging.getLogger(__name__)
+
+def _extract_real_name(original_file_path: str) -> str:
+    basename = os.path.basename(original_file_path)
+    parts = basename.split('_', 1)
+    if len(parts) == 2 and len(parts[0]) == 36:
+        name_with_ext = parts[1]
+    else:
+        name_with_ext = basename
+    name_no_ext = os.path.splitext(name_with_ext)[0]
+    name_no_ext = re.sub(r'_\d{8}_\d{6}$', '', name_no_ext)
+    return name_no_ext
 
 router = APIRouter(prefix="/api/export", tags=["Export"])
 
@@ -41,15 +53,18 @@ def get_json_data(json_path):
         return json.load(f)
 
 
-def export_json_response(json_path):
+def export_json_response(json_path, download_name=None):
     data = get_json_data(json_path)
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
+
+    if download_name is None:
+        download_name = "export.json"
 
     return StreamingResponse(
         io.BytesIO(json_str.encode('utf-8')),
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": build_content_disposition("export.json"),
+            "Content-Disposition": build_content_disposition(download_name),
             "Content-Length": str(len(json_str))
         }
     )
@@ -123,8 +138,13 @@ async def export_analysis_json(
         if not analysis.result_json_path or not os.path.exists(analysis.result_json_path):
             raise HTTPException(status_code=404, detail="JSON文件不存在")
 
+        real_name = _extract_real_name(analysis.original_file_path)
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        download_name = f"{real_name}_{now_str}.json"
+
         return export_json_response(
-            json_path=analysis.result_json_path
+            json_path=analysis.result_json_path,
+            download_name=download_name
         )
 
     except HTTPException:
@@ -307,11 +327,14 @@ async def export_batch_json(
 
         zip_buffer.seek(0)
 
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"{len(json_files)}个文件_{now_str}.zip"
+
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
             headers={
-                "Content-Disposition": build_content_disposition("export.zip")
+                "Content-Disposition": build_content_disposition(zip_filename)
             }
         )
 
