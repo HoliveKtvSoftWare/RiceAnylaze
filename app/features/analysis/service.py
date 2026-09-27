@@ -32,17 +32,23 @@ def _run_via_sidecar(task, image_path: str, output_dir: str, basename: str):
 
 
 def _mark_started(analysis_id: str) -> None:
-    """记录推理开始时间；失败只记日志，不影响任务本身。"""
+    """把记录标记为 processing 并写下开始时间；失败只记日志，不影响推理。
+
+    状态语义：上传后是 `queued`（在单 worker 串行队列里排队），worker 真正取到
+    这一条、开始跑的时候才转成 `processing`。前端据此区分"排队中 / 处理中"，
+    并且两种状态都属于"还没结束"，都会继续轮询。
+    """
     try:
         with Session(sync_engine) as session:
             statement = select(Analysis).where(Analysis.analysis_id == analysis_id)
             record = session.exec(statement).one_or_none()
             if record:
+                record.status = "processing"
                 record.started_at = datetime.utcnow()
                 session.add(record)
                 session.commit()
     except Exception as e:                                            # noqa: BLE001
-        log.warning(f"记录 started_at 失败（不影响推理）: {e}")
+        log.warning(f"记录 processing 状态 / started_at 失败（不影响推理）: {e}")
 
 
 def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, original_filename: str,
@@ -64,8 +70,9 @@ def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, o
     try:
         log.info(f"--- [任务 {analysis_id}] 开始处理 (类型: {task.name} / {task.key}, 原始文件名: {original_filename}) ---")
 
-        # 记录推理开始时间（主页的"平均耗时"用它和 finished_at 相减）。
-        # 放在最前面：包含输出目录创建等准备工作，用户感知的等待时长就是这个区间。
+        # 记录开始处理（status -> processing）与开始时间（主页的"平均耗时"用它和
+        # finished_at 相减）。放在最前面：包含输出目录创建等准备工作，
+        # 用户感知的等待时长就是这个区间。
         _mark_started(analysis_id)
 
         # 【检查点 2】确认这里使用 original_filename 创建 output_dir

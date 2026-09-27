@@ -5,7 +5,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.models.user import UserTable
 from app.api.deps import current_active_user, get_async_session
 from app.infrastructure.database.repositories import AnalysisRepository
-from app.infrastructure.storage.files import files_of_analysis as _files_of_analysis, remove_files as _remove_files
 from app.features.analysis import history_service, statistics_service, file_service
 
 router = APIRouter()

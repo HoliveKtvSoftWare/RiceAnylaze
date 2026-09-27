@@ -6,10 +6,8 @@
 import unittest
 
 from fastapi import HTTPException
-from sqlmodel import select
 
-from app.api.endpoints import analysis_router
-from app.models.analysis import Analysis
+from app.api.routers import analysis as analysis_router
 
 
 def _all_task_keys():

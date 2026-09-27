@@ -40,7 +40,7 @@ class StuckTaskCleanupTests(unittest.TestCase):
         self.engine = create_engine(f"sqlite:///{os.path.join(self.tmp, 'test.db')}", echo=False)
         SQLModel.metadata.create_all(self.engine)
 
-        from app.services import analysis_queue
+        from app.features.analysis import queue as analysis_queue
 
         self.queue = analysis_queue
         self._original_engine = analysis_queue.sync_engine

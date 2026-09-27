@@ -92,7 +92,8 @@
   （`/analysis/models`、`/excel/tasks/{id}`、`/excel/download/{id}`，共 25 条）。
 - `task_type` 参数、`/analysis/tasks`、`/analysis/stats`、`/analysis/queue`
   等旧接口继续可用；新旧前端可同时对接。
-- `app/services/*`、`app/api/endpoints/*` 仍是 `sys.modules` 别名，共享同一份状态。
+- `app/services/*`、`app/core/tasks.py` 中的兼容转发仍共享同一份状态
+  （只被测试引用的那几个已在后续死代码清理中删除）。
 
 ## 验证
 

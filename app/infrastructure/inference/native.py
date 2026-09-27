@@ -35,8 +35,3 @@ def predict(model, image_path, imgsz=640, conf=0.25, iou=0.7, retina_masks=False
     if imgsz:
         kwargs["imgsz"] = imgsz
     return model(image_path, **kwargs)
-
-
-def run_prediction(model_path, image_path, imgsz=640, conf=0.25, iou=0.7, retina_masks=False):
-    """Load a model and execute one prediction; kept small for sidecar use/tests."""
-    return predict(load_model(model_path), image_path, imgsz, conf, iou, retina_masks)

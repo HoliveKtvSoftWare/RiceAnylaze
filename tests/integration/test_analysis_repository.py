@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlmodel import SQLModel, Session, create_engine
 
-from app.models.user import UserTable  # register the foreign-key target
+from app.models.user import UserTable  # noqa: F401  (register the foreign-key target)
 from app.models.analysis import Analysis
 from app.infrastructure.database.repositories import AnalysisRepository
 

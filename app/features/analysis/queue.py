@@ -155,21 +155,6 @@ def _worker_loop() -> None:
             _current_id = None
 
 
-def mark_queued(analysis_id: str) -> None:
-    """把记录标记为 `queued`（需要时由调用方使用；失败只记日志）。"""
-    try:
-        with Session(sync_engine) as session:
-            record = session.exec(
-                select(Analysis).where(Analysis.analysis_id == analysis_id)
-            ).one_or_none()
-            if record:
-                record.status = "queued"
-                session.add(record)
-                session.commit()
-    except Exception as e:                                            # noqa: BLE001
-        log.warning("标记 queued 状态失败（不影响任务排队）: %s", e)
-
-
 def requeue_pending_on_startup() -> Dict[str, int]:
     """清理上一进程遗留的未完成任务（队列不跨重启）。
 

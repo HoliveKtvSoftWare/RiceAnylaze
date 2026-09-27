@@ -9,7 +9,8 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from app.features.task_catalog.catalog import TASK_GROUP_LEAF, TASK_GROUP_STEM, task_types_of_group
+from app.features.task_catalog.catalog import task_types_of_group
+from app.features.task_catalog.types import TASK_GROUP_LEAF, TASK_GROUP_STEM
 
 CN_OFFSET = timedelta(hours=8)
 

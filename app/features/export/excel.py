@@ -1,7 +1,7 @@
 import os
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 
 import pandas as pd
 from fastapi import HTTPException
@@ -12,10 +12,7 @@ from app.infrastructure.database.repositories import SyncAnalysisRepository
 from app.features.task_catalog.catalog import normalize_task_type
 from app.infrastructure.database.session import sync_engine
 from app.models.analysis import Analysis
-from app.domain.analysis.metrics import (
-    AnalysisMetrics, LEAF_REGION_LABELS, LEAF_BUNDLE_LABELS,
-    SCALE_BAR_UM, polygon_area, polygon_perimeter,
-)
+from app.domain.analysis.metrics import AnalysisMetrics
 from app.infrastructure.storage.previews import detect_scale_um_per_px
 from app.infrastructure.storage.results import locate_result_json, read_json
 

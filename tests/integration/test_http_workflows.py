@@ -247,6 +247,11 @@ class HttpWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         stem_only = await self.client.get("/api/analysis/models?group=stem")
         self.assertEqual([item["key"] for item in stem_only.json()["models"]], ["stem"])
+        leaf_only = await self.client.get("/api/analysis/models?group=leaf")
+        leaf_keys = [item["key"] for item in leaf_only.json()["models"]]
+        self.assertNotIn("stem", leaf_keys)
+        self.assertIn("leaf_our", leaf_keys)
+        self.assertGreater(len(leaf_keys), 1)
         bad_group = await self.client.get("/api/analysis/models?group=nope")
         self.assertEqual(bad_group.status_code, 400)
 
@@ -278,6 +283,65 @@ class HttpWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(entry["errorMessage"])
         self.assertEqual(entry["batchName"], "我的批次")
 
+    async def test_history_is_split_between_stem_and_leaf_pages(self):
+        # 茎秆页与剑叶页各自只看自己那一类记录，互不串台。
+        leaf_record = self.make_record(self.owner, "leaf-x", "leaf_our")
+
+        stem_history = await self.client.get("/api/analysis/history?group=stem")
+        self.assertEqual(stem_history.status_code, 200, stem_history.text)
+        self.assertEqual([r["analysisId"] for r in stem_history.json()],
+                         [str(self.owner_record.analysis_id)])
+
+        leaf_history = await self.client.get("/api/analysis/history?group=leaf")
+        self.assertEqual(leaf_history.status_code, 200, leaf_history.text)
+        self.assertEqual([r["analysisId"] for r in leaf_history.json()],
+                         [str(leaf_record.analysis_id)])
+
+        # 不传 group 仍然返回全部（主页/兼容旧调用）
+        everything = await self.client.get("/api/analysis/history")
+        self.assertEqual(len(everything.json()), 2)
+
+    async def test_export_columns_follow_the_task_type(self):
+        # 前端导出弹窗按记录类型向后端要列定义（原来是写死一份茎秆列表）
+        stem = await self.client.get("/api/excel/columns")
+        self.assertEqual(stem.status_code, 200, stem.text)
+        self.assertEqual(stem.json()["task_type"], "stem")
+        self.assertIn("stemArea", stem.json()["available_columns"])
+        self.assertNotIn("body1Area", stem.json()["available_columns"])
+
+        leaf = await self.client.get("/api/excel/columns?task_type=leaf_our")
+        self.assertEqual(leaf.status_code, 200, leaf.text)
+        self.assertEqual(leaf.json()["task_type"], "leaf_our")
+        self.assertIn("body1Area", leaf.json()["available_columns"])
+        self.assertNotIn("stemArea", leaf.json()["available_columns"])
+
+    async def test_export_groups_leaf_variants_and_rejects_mixed_schema(self):
+        # 同一口径下的不同权重（leaf / leaf_our）共用一套列定义，可以一起导出；
+        # 这正是不按精确 task_type 归并的原因。
+        leaf_record = self.make_record(self.owner, "leaf-a", "leaf")
+        leaf_our_record = self.make_record(self.owner, "leaf-b", "leaf_our")
+        request = {"selectedColumns": ["filename", "body1Area"], "unit": "um", "scale": 1}
+
+        response = await self.client.post("/api/excel/batch", json=dict(
+            request, analysisIds=[str(leaf_record.analysis_id), str(leaf_our_record.analysis_id)]))
+        self.assertEqual(response.status_code, 200, response.text)
+        workbook = load_workbook(io.BytesIO(response.content))
+        self.assertEqual(workbook.active.max_row, 3)          # 表头 + 2 条
+        workbook.close()
+
+        # 茎秆与剑叶的数据项完全不同，混在一张表里没有意义 -> 400
+        mixed = await self.client.post("/api/excel/batch", json=dict(
+            request, analysisIds=[str(leaf_record.analysis_id), str(self.owner_record.analysis_id)]))
+        self.assertEqual(mixed.status_code, 400, mixed.text)
+
+        # 汇总按口径过滤：taskType=leaf 应把 leaf 与 leaf_our 一起汇总
+        summary = await self.client.post("/api/excel/summary", json=dict(
+            request, taskType="leaf"))
+        self.assertEqual(summary.status_code, 200, summary.text)
+        workbook = load_workbook(io.BytesIO(summary.content))
+        self.assertEqual(workbook.active.max_row, 3)
+        workbook.close()
+
     async def test_cross_user_access_is_rejected_and_delete_removes_owned_files(self):
         foreign_id = str(self.other_record.analysis_id)
         for endpoint in ["/api/export/json/" + foreign_id, "/api/export/json/preview/" + foreign_id]:
@@ -293,6 +357,47 @@ class HttpWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(original.exists())
         self.assertFalse(Path(preview_path_for(str(original))).exists())
         self.assertTrue(Path(self.other_record.original_file_path).exists())
+
+    def _record_in_own_dir(self, name, extra_file=False):
+        """造一条"真实布局"的记录：结果放在自己的样本目录里。"""
+        sample_dir = self.root / (name + "-dir")
+        sample_dir.mkdir()
+        original = self.root / (name + ".png")
+        Image.new("RGB", (32, 32), "white").save(original)
+        result = sample_dir / (name + ".json")
+        result.write_text(json.dumps({
+            "imageWidth": 32, "imageHeight": 32,
+            "shapes": [{"label": "out", "points": [[0, 0], [4, 0], [4, 4], [0, 4]]}],
+        }), encoding="utf-8")
+        annotated = sample_dir / (name + ".jpg")
+        Image.new("RGB", (32, 32), "white").save(annotated)
+        if extra_file:
+            (sample_dir / "keep-me.txt").write_text("unrelated", encoding="utf-8")
+        record = Analysis(user_id=self.owner.id, task_type="stem", status="completed",
+                          original_file_path=str(original), result_json_path=str(result),
+                          annotated_image_path=str(annotated))
+        self.session.add(record)
+        self.session.commit()
+        self.session.refresh(record)
+        return record, sample_dir
+
+    async def test_delete_removes_the_sample_output_directory(self):
+        # 删记录后，只装这一次分析产物的样本目录应当被一起收掉……
+        record, sample_dir = self._record_in_own_dir("empty-out")
+        response = await self.client.delete("/api/analysis/delete/" + str(record.analysis_id))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(Path(record.original_file_path).exists())
+        self.assertFalse(Path(record.result_json_path).exists())
+        self.assertFalse(Path(record.annotated_image_path).exists())
+        self.assertFalse(sample_dir.exists())
+
+        # ……但目录里还留着别的东西时绝不能删
+        kept, kept_dir = self._record_in_own_dir("kept-out", extra_file=True)
+        response = await self.client.delete("/api/analysis/delete/" + str(kept.analysis_id))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(kept_dir.exists())
+        self.assertTrue((kept_dir / "keep-me.txt").exists())
+        self.assertFalse(Path(kept.result_json_path).exists())
 
     async def test_worker_persists_success_and_failure_timestamps(self):
         record = self.owner_record
@@ -311,6 +416,42 @@ class HttpWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.session.refresh(record)
         self.assertEqual(record.status, "failed")
         self.assertIsNotNone(record.finished_at)
+
+    async def test_worker_transitions_status_from_queued_to_processing(self):
+        """上传后是 queued，worker 真正开始跑时才转 processing。
+
+        前端就是靠这个区分"排队中 / 处理中"，并且两种状态都要继续轮询 ——
+        以前没有任何地方写 processing，前端只认 processing，于是排队中的任务
+        永远不会被刷新，界面一直卡在"排队中"。
+        """
+        buffer = io.BytesIO()
+        Image.new("RGB", (16, 16), "white").save(buffer, format="PNG")
+        upload = await self.client.post("/api/analysis/upload", files={
+            "file": ("status.png", buffer.getvalue(), "image/png"),
+        }, data={"task_type": "stem"})
+        self.assertEqual(upload.status_code, 200, upload.text)
+        analysis_id = uuid.UUID(upload.json()["analysis_id"])
+
+        record = self.session.get(Analysis, analysis_id)
+        self.assertEqual(record.status, "queued")          # 刚入队，还没被 worker 取走
+        original_path = record.original_file_path
+
+        seen = {}
+
+        def fake_run_system(**kwargs):
+            # 推理进行中：这条记录必须已经是 processing，而不是还停在 queued
+            self.session.expire_all()
+            seen["status"] = self.session.get(Analysis, analysis_id).status
+            return "annotated.jpg", "result.json"
+
+        with patch.object(analysis_service, "run_system", side_effect=fake_run_system):
+            analysis_service.run_full_analysis(
+                analysis_id=analysis_id, original_file_path=original_path,
+                user_id=str(self.owner.id), original_filename="status.png", task_type="stem")
+
+        self.assertEqual(seen["status"], "processing")
+        self.session.expire_all()
+        self.assertEqual(self.session.get(Analysis, analysis_id).status, "completed")
 
     async def test_legacy_sync_export_remains_user_scoped(self):
         from fastapi import HTTPException

@@ -14,7 +14,9 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.features.export import responses, tasks
 from app.features.export.excel import excel_service
-from app.features.task_catalog.catalog import normalize_task_type
+from app.features.task_catalog.catalog import (
+    normalize_task_type, schema_of, task_keys_of_schema,
+)
 from app.infrastructure.storage.results import read_json
 
 log = logging.getLogger(__name__)
@@ -123,21 +125,22 @@ def _record_info(record, user_id, task_type):
     }
 
 
-def _summary_task_type(records, requested):
-    """汇总导出用哪套指标口径。
+def _export_task_type(records, requested):
+    """导出用哪套列口径（列定义）。
 
-    显式传了 taskType 就用它；否则按记录推断——不同类型列的列口径不相通，
-    混在一张表里没有意义，所以混合类型直接报 400 让用户分开导。
+    显式传了 taskType 就用它；否则按记录推断。注意归并的粒度是**口径**而不是
+    精确 task key：``leaf`` / ``leaf_our`` 等共用 leaf 列定义，混在一起合法；
+    而 stem 与 leaf 的列完全不同，混在一张表里没有意义，所以直接报 400。
     """
     if requested:
         return normalize_task_type(requested)
-    types = {(record.task_type or "stem") for record in records}
-    if len(types) > 1:
+    schemas = {schema_of(record.task_type or "stem") for record in records}
+    if len(schemas) > 1:
         raise HTTPException(
             status_code=400,
-            detail="所选记录包含多种分析类型（{}），请指定 taskType 或按类型分别导出".format(sorted(types))
+            detail="所选记录同时包含茎秆与剑叶（{}），两者的数据项不同，请分开导出".format(sorted(schemas))
         )
-    return normalize_task_type(types.pop())
+    return normalize_task_type(records[0].task_type or "stem")
 
 
 def _load_valid(records, unit, scale, task_type):
@@ -179,16 +182,21 @@ def _async_task_response(records, selected_columns, unit, scale, task_type, user
 
 
 async def export_all_analysis_to_excel(request_data, user, repository):
-    """汇总导出：当前用户的全部（或指定类型的）已完成记录。"""
+    """汇总导出：当前用户的全部（或指定口径的）已完成记录。"""
     try:
         requested = normalize_task_type(request_data.taskType) if request_data.taskType else None
-        records = await repository.list(
-            user.id, task_type=requested, status="completed"
-        )
+        if requested:
+            # 按口径取：选了 leaf 就把 leaf / leaf_our … 一起汇总，而不是只要其中一个
+            records = await repository.list(
+                user.id, task_types=task_keys_of_schema(schema_of(requested)),
+                status="completed",
+            )
+        else:
+            records = await repository.list(user.id, status="completed")
         if not records:
             raise HTTPException(status_code=404, detail="没有找到已完成的分析记录")
 
-        task_type = _summary_task_type(records, request_data.taskType)
+        task_type = _export_task_type(records, request_data.taskType)
         log.info(f"用户 {user.id} 汇总导出：{len(records)} 条，类型 {task_type}，"
                  f"列 {request_data.selectedColumns}，单位 {request_data.unit}")
 
@@ -221,7 +229,7 @@ async def export_batch_to_excel(request_data, user, repository):
         if not records:
             raise HTTPException(status_code=404, detail="没有找到有效的已完成分析记录")
 
-        task_type = _summary_task_type(records, request_data.taskType)
+        task_type = _export_task_type(records, request_data.taskType)
         log.info(f"用户 {user.id} 批量导出 {len(records)} 条记录，类型 {task_type}")
 
         if request_data.asyncMode:
@@ -502,27 +510,3 @@ async def export_batch_json(analysis_ids_query, request_data, user, repository):
             status_code=500,
             detail="批量导出失败: {}".format(str(e))
         )
-
-
-class ExportService:
-    """Compatibility facade for scripts that use the former service object."""
-    get_json_data = staticmethod(get_json_data)
-    get_json_statistics = staticmethod(get_json_statistics)
-    _format_size = staticmethod(_format_size)
-    _extract_real_name = staticmethod(_extract_real_name)
-
-    def export_json_response(self, json_path, filename=None):
-        response = export_json_response(json_path, filename)
-        response.media_type = "application/json"
-        response.headers["content-type"] = "application/json"
-        return response
-
-    def _extract_labels(self, data):
-        counts = {}
-        for shape in data.get("shapes", []):
-            label = shape.get("label", "unknown")
-            counts[label] = counts.get(label, 0) + 1
-        return counts
-
-
-export_service = ExportService()

@@ -21,12 +21,6 @@ class InferenceRefactorTests(unittest.TestCase):
         self.assertIs(legacy.get_task, catalog.get_task)
         self.assertIs(legacy.TaskSpec, catalog.TaskSpec)
 
-    def test_geometry_legacy_module_reexports_domain_implementation(self):
-        domain = importlib.import_module("app.domain.geometry.mask_geometry")
-        legacy = importlib.import_module("app.services.mask_geometry")
-
-        self.assertIs(legacy.topology_geometry, domain.topology_geometry)
-
     def test_sidecar_reports_missing_result_file_and_preserves_protocol(self):
         from app.features.task_catalog.types import TaskSpec
         from app.infrastructure.inference.sidecar import _task_spec, run_via_sidecar

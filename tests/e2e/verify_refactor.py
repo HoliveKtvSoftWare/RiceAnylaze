@@ -40,6 +40,27 @@ REQUIRED_FRONTEND_ROUTES = [
 ]
 
 
+def _install_baseline_aliases():
+    """给"快照里的旧代码"补上它当年依赖的模块路径。
+
+    基线 zip 里的 `excel_download.py` 写的是 `from app.database.session import ...`
+    和 `from app.services.mask_geometry import ...`，这两条兼容转发已经从生产代码里
+    删除（它们只被测试引用过）。要跑历史对比，就由这个脚本自己把旧路径映射到新实现，
+    而不是为一个对比脚本在生产树里留转发文件。
+    """
+    import app.services                                            # noqa: F401  真实包，仍需可导入
+    import app.domain.geometry.mask_geometry as new_geometry
+    import app.infrastructure.database.session as new_session
+
+    # app/database/ 目录本身已删除，所以要造一个带 __path__ 的包占位
+    legacy_pkg = types.ModuleType("app.database")
+    legacy_pkg.__path__ = []
+    sys.modules.setdefault("app.database", legacy_pkg)
+
+    sys.modules["app.database.session"] = new_session
+    sys.modules["app.services.mask_geometry"] = new_geometry
+
+
 def verify():
     old_api = json.loads((ROOT / ".run/openapi-before.json").read_text(encoding="utf-8"))
     current_api = app.openapi()
@@ -53,6 +74,7 @@ def verify():
     assert not missing_routes, "new frontend routes are missing: {}".format(missing_routes)
 
     with zipfile.ZipFile(ROOT / ".run/architecture-baseline-20260922.zip") as archive:
+        _install_baseline_aliases()
         baseline = types.ModuleType("baseline_excel")
         source = archive.read("app/services/excel_download.py").decode("utf-8-sig")
         exec(compile(source, "baseline_excel.py", "exec"), baseline.__dict__)

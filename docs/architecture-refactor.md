@@ -72,3 +72,39 @@ tests/{unit,integration,e2e}/      按测试边界归类
 
 不新增没有实际用途的 errors/logging 空壳模块；现有 HTTP 错误格式保持原样。
 验收证据和测试命令见 [重构验收记录](architecture-refactor-verification.md)。
+
+## 后续清理：死代码（2026-09-27）
+
+重构时为了"不破坏仓库外调用方"留了一整层兼容转发。后来做了一次全量死代码体检
+（AST 扫描模块可达性 + 无用 import + 无人引用的顶层定义），结果与处置如下。
+
+**零引用，直接删除**
+
+| 文件 | 判定 |
+|---|---|
+| `app/api/endpoints/excel_router.py` | 兼容转发，全项目无任何 import |
+| `app/api/endpoints/export_router.py` | 同上 |
+| `app/services/export_service.py` | 同上 |
+| `app/core/custom_worker.py` | 转发到 `deploy/legacy/custom_worker`；在用的入口 `deploy/legacy/worker.py` 直接 import legacy 那份，不经过它 |
+
+**死定义**
+
+- `app/infrastructure/inference/native.py::run_prediction`（注释称供 sidecar 使用，实际无人调用）
+- `app/features/analysis/queue.py::mark_queued`（注释称"需要时由调用方使用"，实际无调用方）
+- `app/features/export/service.py::ExportService` 及其 `export_service` 单例
+
+**只被本仓库测试引用的兼容转发，删除并把测试改到新路径**
+
+`app/services/{analysis_stats,mask_geometry,excel_download,analysis_queue}.py`、
+`app/database/session.py`、`app/api/endpoints/analysis_router.py`
+（`app/database/`、`app/api/endpoints/` 两个目录随之清空删除）
+
+**保留的兼容转发**（`deploy/` 下的脚本仍在用，删掉会断）
+`app/core/tasks.py`、`app/services/{image_preview,yolo_inference,analysis_service}.py`
+
+**注意**：`tests/e2e/verify_refactor.py` 要从 `.run/` 里的历史快照 exec 旧代码，
+而那份旧代码 import 了上述已删路径；因此该脚本自己用 `_install_baseline_aliases()`
+把旧路径映射到新实现——这是对比脚本的职责，不该反过来要求生产树保留转发文件。
+
+**顺带修**：`app/features/analysis/statistics_service.py` 原本从 `catalog` 取
+`TASK_GROUP_LEAF/STEM`（catalog 只是顺手转发 `types` 的定义），改为直接从 `types` 取。

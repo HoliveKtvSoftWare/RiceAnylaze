@@ -11,7 +11,7 @@ os.environ.setdefault("YOLO_CONFIG_DIR", str(BACKEND_DIR / ".ultralytics"))
 
 def require_mask_geometry():
     try:
-        from app.services import mask_geometry
+        from app.domain.geometry import mask_geometry
     except ImportError as exc:
         raise AssertionError("mask topology post-processing is not implemented") from exc
     return mask_geometry
@@ -78,7 +78,7 @@ class SideAssignmentTests(unittest.TestCase):
         self.assertEqual(corrections, {2: "side1_small"})
 
     def test_assignment_uses_outer_envelope_and_nearest_side(self):
-        from app.services.mask_geometry import reassign_side_bundle_labels
+        from app.domain.geometry.mask_geometry import reassign_side_bundle_labels
 
         side1 = np.zeros((30, 30), dtype=np.uint8)
         side2 = np.zeros((30, 30), dtype=np.uint8)

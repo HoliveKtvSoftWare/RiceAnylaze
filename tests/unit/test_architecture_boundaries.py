@@ -1,31 +1,14 @@
+"""架构边界回归测试。
+
+原来这里还有 3 个"兼容转发模块与新模块是同一个对象"的断言。那些转发模块
+（`app.services.analysis_queue` / `excel_download` / `api.endpoints.analysis_router`）
+只被本仓库的测试引用，已经删除，断言也随之移除。保留下来的这一类测试针对的是
+仍然存在的转发模块。
+"""
 import unittest
 
 
 class ArchitectureBoundaryTests(unittest.TestCase):
-    def test_public_router_and_legacy_router_share_routes(self):
-        from app.api.routers import analysis
-        from app.api.endpoints import analysis_router
-
-        self.assertIs(analysis.router, analysis_router.router)
-
-    def test_storage_compatibility_helpers_are_shared(self):
-        from app.api.endpoints.analysis_router import _files_of_analysis
-        from app.infrastructure.storage.files import files_of_analysis
-
-        self.assertIs(_files_of_analysis, files_of_analysis)
-
-    def test_export_feature_preserves_singleton(self):
-        from app.features.export.excel import excel_service
-        from app.services.excel_download import excel_service as legacy_service
-
-        self.assertIs(excel_service, legacy_service)
-
-    def test_queue_compatibility_path_shares_mutable_state(self):
-        from app.features.analysis import queue
-        from app.services import analysis_queue
-
-        self.assertIs(queue, analysis_queue)
-
     def test_analysis_service_preserves_configured_sidecar_paths(self):
         from unittest.mock import mock_open, patch
         from app.features.analysis import service

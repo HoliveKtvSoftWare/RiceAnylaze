@@ -9,12 +9,8 @@
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
-
-import cv2
-import numpy as np
 
 BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 sys.path.insert(0, BACKEND_DIR)
@@ -22,8 +18,8 @@ os.chdir(BACKEND_DIR)
 os.environ.setdefault('YOLO_CONFIG_DIR', os.path.join(BACKEND_DIR, '.ultralytics'))
 
 from app.core.config import settings
-from app.core.tasks import get_tasks, get_task
-from app.services.yolo_inference import run_system
+from app.features.task_catalog.catalog import get_task, get_tasks
+from app.infrastructure.inference.runner import run_system
 
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else r'D:\Code\data_out_excel\测试数据\10-1.tif'
 OUT = os.path.join(BACKEND_DIR, '_seg_out', 'model_compare')

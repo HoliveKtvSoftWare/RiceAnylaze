@@ -1,4 +1,4 @@
-"""主页统计工具（`app/services/analysis_stats.py`）回归测试。
+"""主页统计工具（`app/features/analysis/statistics_service.py`）回归测试。
 
 覆盖：任务大类归属、耗时计算（含缺失/负值/时区混用）、近 N 天按日分桶。
 """
@@ -15,20 +15,20 @@ class _Record:
 
 class GroupOfTaskTypeTests(unittest.TestCase):
     def test_stem_maps_to_stem(self):
-        from app.services.analysis_stats import group_of_task_type
+        from app.features.analysis.statistics_service import group_of_task_type
 
         self.assertEqual(group_of_task_type('stem'), 'stem')
         self.assertEqual(group_of_task_type(' STEM '), 'stem')
 
     def test_leaf_variants_map_to_leaf(self):
-        from app.services.analysis_stats import group_of_task_type
+        from app.features.analysis.statistics_service import group_of_task_type
 
         for key in ('leaf', 'leaf_our', 'leaf_v11_head', 'leaf_svbdet', 'leaf_asf'):
             with self.subTest(key=key):
                 self.assertEqual(group_of_task_type(key), 'leaf')
 
     def test_unknown_type_falls_back_to_leaf(self):
-        from app.services.analysis_stats import group_of_task_type
+        from app.features.analysis.statistics_service import group_of_task_type
 
         # 未登记的类型按剑叶处理：统计口径与前端分组保持一致，不会凭空多出一个大类
         self.assertEqual(group_of_task_type('something_new'), 'leaf')
@@ -37,13 +37,13 @@ class GroupOfTaskTypeTests(unittest.TestCase):
 
 class DurationTests(unittest.TestCase):
     def test_normal_duration(self):
-        from app.services.analysis_stats import duration_seconds
+        from app.features.analysis.statistics_service import duration_seconds
 
         start = datetime(2026, 9, 17, 10, 0, 0)
         self.assertEqual(duration_seconds(start, start + timedelta(seconds=8.5)), 8.5)
 
     def test_missing_side_returns_none(self):
-        from app.services.analysis_stats import duration_seconds
+        from app.features.analysis.statistics_service import duration_seconds
 
         start = datetime(2026, 9, 17, 10, 0, 0)
         # 老记录没有 started_at / finished_at：必须跳过而不是当成 0 秒
@@ -52,13 +52,13 @@ class DurationTests(unittest.TestCase):
         self.assertIsNone(duration_seconds(None, None))
 
     def test_negative_duration_returns_none(self):
-        from app.services.analysis_stats import duration_seconds
+        from app.features.analysis.statistics_service import duration_seconds
 
         start = datetime(2026, 9, 17, 10, 0, 10)
         self.assertIsNone(duration_seconds(start, start - timedelta(seconds=5)))
 
     def test_timezone_aware_values_are_normalized(self):
-        from app.services.analysis_stats import duration_seconds
+        from app.features.analysis.statistics_service import duration_seconds
 
         start = datetime(2026, 9, 17, 10, 0, 0, tzinfo=timezone.utc)
         end = datetime(2026, 9, 17, 18, 0, 5, tzinfo=timezone(timedelta(hours=8)))
@@ -73,7 +73,7 @@ class DailySeriesTests(unittest.TestCase):
         self.now_utc = datetime(2026, 9, 17, 4, 0, 0)
 
     def test_series_has_window_days_and_ends_today(self):
-        from app.services.analysis_stats import build_daily_series
+        from app.features.analysis.statistics_service import build_daily_series
 
         daily = build_daily_series([], window_days=7, now_utc=self.now_utc)
 
@@ -83,7 +83,7 @@ class DailySeriesTests(unittest.TestCase):
         self.assertTrue(all(item['total'] == 0 for item in daily))
 
     def test_records_are_bucketed_by_local_day(self):
-        from app.services.analysis_stats import build_daily_series
+        from app.features.analysis.statistics_service import build_daily_series
 
         records = [
             # UTC 2026-09-17 01:00 -> 北京 09:00 当天
@@ -106,7 +106,7 @@ class DailySeriesTests(unittest.TestCase):
         )
 
     def test_records_outside_window_are_ignored(self):
-        from app.services.analysis_stats import build_daily_series
+        from app.features.analysis.statistics_service import build_daily_series
 
         old = self.now_utc - timedelta(days=30)
         daily = build_daily_series([_Record(old, 'completed')], window_days=7, now_utc=self.now_utc)
@@ -114,14 +114,14 @@ class DailySeriesTests(unittest.TestCase):
         self.assertEqual(sum(item['total'] for item in daily), 0)
 
     def test_record_without_created_at_is_ignored(self):
-        from app.services.analysis_stats import build_daily_series
+        from app.features.analysis.statistics_service import build_daily_series
 
         daily = build_daily_series([_Record(None, 'completed')], window_days=7, now_utc=self.now_utc)
 
         self.assertEqual(sum(item['total'] for item in daily), 0)
 
     def test_window_is_at_least_one_day(self):
-        from app.services.analysis_stats import build_daily_series
+        from app.features.analysis.statistics_service import build_daily_series
 
         # 非法/过小的窗口至少给 1 天，不能返回空序列（前端要画柱子）
         self.assertEqual(len(build_daily_series([], window_days=0, now_utc=self.now_utc)), 1)

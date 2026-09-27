@@ -1,7 +1,6 @@
 """User history queries, task selection and history response assembly."""
 import os
 import logging
-from typing import Optional
 from fastapi import HTTPException
 from app.features.task_catalog.catalog import (
     is_valid_task_group, task_types_of_group, list_tasks,

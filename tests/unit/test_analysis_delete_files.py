@@ -9,8 +9,11 @@ import shutil
 import types
 import unittest
 
-from app.api.endpoints.analysis_router import _files_of_analysis, _remove_files
-from app.services.image_preview import preview_path_for
+from app.infrastructure.storage.files import (
+    files_of_analysis as _files_of_analysis,
+    remove_files as _remove_files,
+)
+from app.infrastructure.storage.previews import preview_path_for
 
 # 临时目录放在工作区内：受限环境下系统 TEMP 可能不可写
 TEST_TMP_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tmp")

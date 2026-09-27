@@ -11,7 +11,13 @@ from app.features.task_catalog.catalog import (
 from app.features.analysis import queue as analysis_queue
 from app.infrastructure.database.repositories import BatchRepository
 from app.infrastructure.storage.previews import ensure_preview
-from app.infrastructure.storage.files import files_of_analysis as _files_of_analysis, remove_files as _remove_files, save_upload_file
+from app.infrastructure.storage.files import (
+    files_of_analysis as _files_of_analysis,
+    directories_of_analysis as _dirs_of_analysis,
+    remove_files as _remove_files,
+    remove_empty_dirs as _remove_empty_dirs,
+    save_upload_file,
+)
 from app.models.analysis import Analysis
 from app.models.batch import UploadBatch
 
@@ -245,8 +251,9 @@ async def delete_analysis(analysis_id, user, repository):
             log.warning(f"分析记录 {analysis_id} 不存在或不属于用户 {user.id}")
             raise HTTPException(status_code=404, detail="分析记录不存在或无权操作")
 
-        # 删除相关文件（含自动生成的原图预览）
+        # 删除相关文件（含自动生成的原图预览），并清掉留空的样本输出目录
         _remove_files(_files_of_analysis(analysis))
+        _remove_empty_dirs(_dirs_of_analysis(analysis))
 
         # 删除数据库记录
         await repository.delete(analysis)
@@ -284,8 +291,10 @@ async def delete_analyses_batch(request_data, user, repository):
 
         for analysis in analyses:
             try:
-                # 与单条删除口径一致：原图、预览、结果图、结果 JSON 全清
+                # 与单条删除口径一致：原图、预览、结果图、结果 JSON 全清，
+                # 留空的样本输出目录也一并收掉
                 _remove_files(_files_of_analysis(analysis))
+                _remove_empty_dirs(_dirs_of_analysis(analysis))
 
                 await repository.delete(analysis)
                 deleted_count += 1

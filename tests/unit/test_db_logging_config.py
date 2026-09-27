@@ -16,7 +16,7 @@ class DbEchoConfigTests(unittest.TestCase):
 
     def test_db_echo_is_boolean_and_matches_engine(self):
         from app.core.config import settings
-        from app.database.session import engine
+        from app.infrastructure.database.session import engine
 
         self.assertIsInstance(settings.DB_ECHO, bool)
         self.assertIs(engine.echo, settings.DB_ECHO)

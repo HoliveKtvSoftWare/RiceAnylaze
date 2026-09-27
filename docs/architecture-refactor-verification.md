@@ -19,8 +19,12 @@
 | 模型执行 | `app/infrastructure/inference/{native,labelme,renderer,runner,sidecar}.py` |
 | 部署分类 | `deploy/{runtime,maintenance,experiments,docs,legacy}/` |
 
-新代码没有反向依赖 `app/services`、`app/database`、`app/api/endpoints`、
-`app/core/tasks.py` 这些兼容入口。队列与预览缓存的旧导入和新模块使用同一份状态。
+新代码没有反向依赖 `app/services`、`app/core/tasks.py` 这些兼容入口。
+队列与预览缓存的旧导入和新模块使用同一份状态。
+
+> 注：`app/database`、`app/api/endpoints` 已在后续的死代码清理中删除
+> （连同只被测试引用的 6 个转发模块），详情见
+> [后端架构整理](architecture-refactor.md) 的「后续清理：死代码」一节。
 
 > **后续变更（适配新版前端）**：本次重构验收时 API 与重构前快照逐字节一致；
 > 之后为了对接 `RiceAnylazeWeb@main`（它是对着后端 `origin/main` 写的），

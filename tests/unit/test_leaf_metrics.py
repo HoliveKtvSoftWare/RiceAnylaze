@@ -3,7 +3,7 @@ import unittest
 
 class LeafMetricTopologyTests(unittest.TestCase):
     def test_leaf_metrics_use_net_topology_area(self):
-        from app.services.excel_download import ExcelDownloadService
+        from app.features.export.excel import ExcelDownloadService
 
         analysis_data = {
             "shapes": [

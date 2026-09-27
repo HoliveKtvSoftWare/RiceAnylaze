@@ -13,7 +13,7 @@ class QueueSerializationTests(unittest.TestCase):
     """把真正跑推理的函数换成记录器，观察执行顺序与重叠情况。"""
 
     def setUp(self):
-        from app.services import analysis_queue
+        from app.features.analysis import queue as analysis_queue
 
         self.queue = analysis_queue
         # 清空共享状态（模块级单例，测试间必须隔离）

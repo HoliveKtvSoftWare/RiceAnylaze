@@ -4,8 +4,7 @@ from typing import Dict, List, Optional
 
 from app.core.config import settings
 from .types import (
-    LEAF_TASK_DEFAULTS, STEM_COLORS, TASK_GROUPS, TASK_GROUP_LEAF,
-    TASK_GROUP_STEM, TaskSpec,
+    LEAF_TASK_DEFAULTS, STEM_COLORS, TASK_GROUPS, TaskSpec,
 )
 
 LEAF_MODEL_VARIANTS = [
@@ -122,6 +121,21 @@ def list_models(group: Optional[str] = None) -> List[dict]:
         "key": task.key,
         "group": task.group,
     } for task in tasks]
+
+
+def schema_of(value: Optional[str]) -> str:
+    """该任务用哪套指标口径（也就是导出的列定义）：``stem`` 或 ``leaf``。"""
+    return get_task(value).metrics
+
+
+def task_keys_of_schema(schema: Optional[str]) -> List[str]:
+    """同一套列定义下的全部 task key。
+
+    ``leaf`` / ``leaf_v11`` / ``leaf_our`` … 共用 leaf 列定义，所以导出要按
+    **口径**归并而不是按精确 task key，否则同一批叶子的数据会被拆成好几张表。
+    """
+    return [task.key for task in get_tasks().values() if task.metrics == schema]
+
 
 
 def default_model_name(group: Optional[str] = None) -> Optional[str]:
