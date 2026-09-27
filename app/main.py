@@ -1,37 +1,31 @@
-import warnings
-
-warnings.filterwarnings(
-    "ignore",
-    message=r'Field "model_name" has conflict with protected namespace',
-    category=UserWarning,
-)
-
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import os
-from app.auth.backend import auth_backend
-
-from app.database.session import create_db_and_tables
-from app.auth.schemas import UserCreate, UserRead, UserUpdate
+from app.infrastructure.database.session import create_db_and_tables
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api.endpoints import analysis_router as analysis_router
-from app.api.endpoints import excel_router as excel_router
-from app.api.endpoints import export_router
-from app.auth.core import fastapi_users
+from app.api.routers import auth, analysis, excel, export
+from app.features.analysis import queue as analysis_queue
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("应用启动...")
     await create_db_and_tables()
+    # 拉起唯一的队列 worker 线程（推理串行执行，见 app/features/analysis/queue.py）
+    analysis_queue.start_worker()
+    # 队列不跨重启：清理上一进程遗留的 queued / processing 记录
+    # （processing 且原图还在的会自动重新排队）
+    analysis_queue.requeue_pending_on_startup()
     yield
+    # 先停队列再关应用；正在跑的推理不会被打断
+    analysis_queue.stop_worker()
     print("应用关闭...")
 
 app = FastAPI(lifespan=lifespan)
 
-# ORS配置
+# CORS配置
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -42,34 +36,21 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 导出接口用 Content-Disposition 传中文文件名，跨域下浏览器需要这个头才能读到
     expose_headers=["Content-Disposition"],
 )
 
-# 挂载认证路由
-app.include_router(
-    fastapi_users.get_auth_router(auth_backend), prefix="/api/auth/jwt", tags=["auth"]
-)
-app.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
-    prefix="/api/auth",
-    tags=["auth"],
-)
-
-# 挂载用户管理路由
-app.include_router(
-    fastapi_users.get_users_router(UserRead, UserUpdate),
-    prefix="/api/users",
-    tags=["users"],
-)
+# 挂载认证和用户管理路由
+app.include_router(auth.router)
 
 # 挂载分析路由
-app.include_router(analysis_router.router, prefix="/api/analysis", tags=["Analysis"])
+app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
 
 # 挂载Excel导出路由
-app.include_router(excel_router.router, prefix="/api/excel", tags=["Excel"])
+app.include_router(excel.router, prefix="/api/excel", tags=["Excel"])
 
-# 🆕 挂载JSON导出路由（新增这行）
-app.include_router(export_router.router, tags=["Export"])
+# 挂载JSON导出路由
+app.include_router(export.router, tags=["Export"])
 
 # 配置静态文件
 static_dir = settings.STORAGE_PATH

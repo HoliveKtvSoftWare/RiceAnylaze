@@ -1,0 +1,1 @@
+"""Feature-level application registries."""
