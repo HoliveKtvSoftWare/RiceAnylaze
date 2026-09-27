@@ -3,3 +3,22 @@
 
 # 鎺ㄩ�佹椂蹇界暐涓汉鏁版嵁
 /app_storage/
+
+# 鏈湴閰嶇疆鍜屾暟鎹簱鍑嵁
+.env
+
+# 鎺ㄧ悊杩愯鏃躲�佺紦瀛樺拰涓存椂杈撳嚭
+/.ultra_refine/
+/.pylibs/
+/.ultralytics/
+/.legacy_pgsql_data/
+/_seg_out/
+/.piptmp/
+/.run/
+/tests/.tmp/
+/tests/**/.tmp/
+__pycache__/
+*.py[cod]
+
+# IDE 本地配置（不应上传）
+.idea/

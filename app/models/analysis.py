@@ -12,8 +12,14 @@ class Analysis(SQLModel, table=True):
     # --- 核心字段 ---
     analysis_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
     status: str = Field(default="pending", index=True) # 任务状态: pending, processing, queued, completed, failed
+    # 分析类型（对应 app/core/tasks.py 的注册表，如 stem=茎秆截面、leaf=剑叶）
+    task_type: str = Field(default="stem", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    # 推理起止时间（均为 UTC）。用于主页的"近 7 天完成数 / 平均耗时"统计；
+    # 老记录没有这两个字段，统计时按缺失跳过，不影响其它功能。
+    started_at: Optional[datetime] = Field(default=None)
+    finished_at: Optional[datetime] = Field(default=None)
 
     # --- 文件路径字段 ---
     original_file_path: Optional[str] = Field(default=None)
