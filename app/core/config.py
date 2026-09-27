@@ -8,7 +8,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     BACKEND_ROOT: ClassVar[Path] = Path(__file__).resolve().parents[2]
     # 通过 model_config，pydantic-settings 会自动查找并加载 .env 文件
-    model_config = SettingsConfigDict(env_file=BACKEND_ROOT / ".env", env_file_encoding="utf-8")
+    #
+    # extra="ignore"：pydantic-settings 默认是 "forbid"，.env / 环境变量里只要出现
+    # 一个本类没声明的键就会直接 ValidationError，应用起不来。.env 是逐台机器各写
+    # 各的，历史键（例如旧版用过的 YOLO_MODELS）很常见，为此让整个服务无法启动
+    # 不值得 —— 未声明的键一律忽略。
+    model_config = SettingsConfigDict(
+        env_file=BACKEND_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # 对应 .env 文件中的配置项
     # pydantic-settings 会自动进行类型检查和转换
