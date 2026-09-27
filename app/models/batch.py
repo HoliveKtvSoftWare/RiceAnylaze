@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Optional
 from sqlmodel import Field, SQLModel
 
 
@@ -18,6 +19,9 @@ class UploadBatch(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True, index=True)
     batch_id: uuid.UUID = Field(default_factory=uuid.uuid4, unique=True, index=True, description="批次唯一标识")
     file_count: int = Field(default=0, description="批次中的文件数量")
+    # 批次展示名（文件夹上传时是文件夹名，多选单图时是"批量上传 (N 个文件)"）。
+    # 前端优先用后端返回的 batchName，拿不到才回退 localStorage。
+    name: Optional[str] = Field(default=None, description="批次展示名")
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False, description="创建时间")
 
     # --- 关联用户 (外键) ---

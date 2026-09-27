@@ -6,6 +6,15 @@ log = logging.getLogger(__name__)
 
 
 def load_model(model_path):
+    import os
+
+    if not os.path.isfile(model_path):
+        raise FileNotFoundError(
+            f"模型文件不存在: {model_path}\n"
+            f"请检查任务注册表（app/features/task_catalog/catalog.py）中的 model_path，"
+            f"或确认该权重文件已放置到正确路径。"
+        )
+
     import torch
     from ultralytics import YOLO
 

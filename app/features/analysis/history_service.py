@@ -3,11 +3,32 @@ import os
 import logging
 from typing import Optional
 from fastapi import HTTPException
-from app.features.task_catalog.catalog import is_valid_task_group, task_types_of_group, list_tasks
+from app.features.task_catalog.catalog import (
+    is_valid_task_group, task_types_of_group, list_tasks,
+    list_models, default_model_name,
+)
+from app.infrastructure.database.repositories import BatchRepository
 from app.infrastructure.storage.files import path_to_static_url, original_filename
 from app.infrastructure.storage.previews import ensure_preview_cached
 
 log = logging.getLogger(__name__)
+
+
+async def get_available_models(group=None):
+    """新版前端模型选择器的数据源（``GET /analysis/models``）。
+
+    前端把返回的 ``name`` 同时当作 select 的 value 与展示文本，并在上传时
+    原样作为 ``model_name`` 回传；后端用 ``resolve_task_type`` 解析回 task key。
+
+    可选参数 group：按大类过滤（stem=茎秆 / leaf=剑叶），不传时返回全部
+    （stem 排在最前，作为默认）。
+    """
+    if group and not is_valid_task_group(group):
+        raise HTTPException(status_code=400, detail=f"未知的分析大类 '{group}'，应为 stem 或 leaf")
+    return {
+        "models": list_models(group),
+        "default": default_model_name(group),
+    }
 
 
 async def get_analysis_tasks(group, user):
@@ -42,6 +63,11 @@ async def get_analysis_history(request, task_type, group, user, repository):
 
     log.info(f"为用户 {user.id} 找到 {len(history_records)} 条历史记录。")
 
+    # 批次名一次查全，避免逐条查库
+    batch_names = await BatchRepository(repository.session).names_for(
+        user.id, [record.batch_id for record in history_records]
+    )
+
     base_url = str(request.base_url)
     history_with_urls = []
     for record in history_records:
@@ -64,10 +90,13 @@ async def get_analysis_history(request, task_type, group, user, repository):
             "taskType": record.task_type or "stem",
             "batchId": str(record.batch_id) if record.batch_id else None,
             "batchIndex": record.batch_index,
+            "batchName": batch_names.get(record.batch_id),
             "createdAt": record.created_at,
             "startedAt": record.started_at,
             "finishedAt": record.finished_at,
             "status": record.status,
+            "modelUsed": record.model_used,
+            "errorMessage": record.error_message,
             "originalFilename": display_filename,
             "originalImageUrl": path_to_url(original_display_path),
             "originalFileUrl": path_to_url(record.original_file_path),

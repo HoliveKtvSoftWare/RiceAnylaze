@@ -38,19 +38,39 @@ def get_tasks() -> Dict[str, TaskSpec]:
     return _build_registry()
 
 
-def normalize_task_type(value: Optional[str]) -> str:
+def _label_to_key() -> Dict[str, str]:
+    """显示名 -> key。前端模型下拉框展示并回传的是 task.name。"""
+    return {task.name: task.key for task in get_tasks().values()}
+
+
+def resolve_task_type(value: Optional[str]) -> str:
+    """把任意用户输入解析成合法的 task key。
+
+    同时接受 task key（如 ``leaf_our``）和中文显示名（如 ``剑叶 · OUR-best``），
+    因为新版前端从 /analysis/models 拿到 name 后原样回传。未知值回退 ``stem``。
+    """
     if not value:
         return "stem"
-    key = str(value).strip().lower()
-    return key if key in get_tasks() else "stem"
+    raw = str(value).strip()
+    tasks = get_tasks()
+    if raw.lower() in tasks:
+        return raw.lower()
+    return _label_to_key().get(raw, "stem")
+
+
+def normalize_task_type(value: Optional[str]) -> str:
+    return resolve_task_type(value)
 
 
 def get_task(value: Optional[str]) -> TaskSpec:
-    return get_tasks()[normalize_task_type(value)]
+    return get_tasks()[resolve_task_type(value)]
 
 
 def is_valid_task_type(value: Optional[str]) -> bool:
-    return bool(value) and str(value).strip().lower() in get_tasks()
+    if not value:
+        return False
+    raw = str(value).strip()
+    return raw.lower() in get_tasks() or raw in _label_to_key()
 
 
 def normalize_task_group(value: Optional[str]) -> Optional[str]:
@@ -81,3 +101,30 @@ def list_tasks(group: Optional[str] = None) -> List[dict]:
         "model": task.model_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1],
         "group": task.group, "note": task.note,
     } for task in tasks]
+
+
+def list_models(group: Optional[str] = None) -> List[dict]:
+    """新版前端模型选择器的数据源：``[{name, path}]``。
+
+    前端的 select 用 ``name`` 同时做 value 和展示文本，并把选中的 ``name``
+    作为 ``model_name`` 回传；因此这里返回中文显示名，由
+    :func:`resolve_task_type` 负责把它解析回 task key。
+
+    额外附带 ``key``/``group`` 字段，不影响前端，便于以后按大类过滤。
+    """
+    tasks = get_tasks().values()
+    key = normalize_task_group(group)
+    if key:
+        tasks = [task for task in tasks if task.group == key]
+    return [{
+        "name": task.name,
+        "path": task.model_path,
+        "key": task.key,
+        "group": task.group,
+    } for task in tasks]
+
+
+def default_model_name(group: Optional[str] = None) -> Optional[str]:
+    """默认模型：返回列表首项（stem 大类排在最前）。"""
+    models = list_models(group)
+    return models[0]["name"] if models else None

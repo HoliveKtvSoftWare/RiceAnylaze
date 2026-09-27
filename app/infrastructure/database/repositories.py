@@ -1,12 +1,13 @@
 """User-scoped analysis persistence shared by history, deletion and export."""
 
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 from uuid import UUID
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.analysis import Analysis
+from app.models.batch import UploadBatch
 
 
 class AnalysisRepository:
@@ -81,4 +82,31 @@ class SyncAnalysisRepository:
         return self.session.exec(statement).one_or_none()
 
 
-__all__ = ["AnalysisRepository", "SyncAnalysisRepository"]
+class BatchRepository:
+    """User-scoped access to upload batches（批次名与批次复用）。"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get(self, batch_id, user_id) -> Optional[UploadBatch]:
+        statement = select(UploadBatch).where(
+            UploadBatch.batch_id == UUID(str(batch_id)),
+            UploadBatch.user_id == user_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().one_or_none()
+
+    async def names_for(self, user_id, batch_ids: Sequence) -> Dict[UUID, str]:
+        """一次查出多个批次名，供历史列表拼装 ``batchName``（避免 N+1 查询）。"""
+        ids = [UUID(str(value)) for value in batch_ids if value]
+        if not ids:
+            return {}
+        statement = select(UploadBatch).where(
+            UploadBatch.user_id == user_id,
+            UploadBatch.batch_id.in_(ids),
+        )
+        result = await self.session.execute(statement)
+        return {row.batch_id: row.name for row in result.scalars().all() if row.name}
+
+
+__all__ = ["AnalysisRepository", "SyncAnalysisRepository", "BatchRepository"]

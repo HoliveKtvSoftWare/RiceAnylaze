@@ -10,6 +10,11 @@ _LIGHT_MIGRATIONS = {
     "analyses": [
         ("started_at", "TIMESTAMP WITHOUT TIME ZONE"),
         ("finished_at", "TIMESTAMP WITHOUT TIME ZONE"),
+        ("model_used", "VARCHAR"),
+        ("error_message", "VARCHAR"),
+    ],
+    "upload_batches": [
+        ("name", "VARCHAR"),
     ],
 }
 

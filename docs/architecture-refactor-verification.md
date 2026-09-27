@@ -22,6 +22,14 @@
 新代码没有反向依赖 `app/services`、`app/database`、`app/api/endpoints`、
 `app/core/tasks.py` 这些兼容入口。队列与预览缓存的旧导入和新模块使用同一份状态。
 
+> **后续变更（适配新版前端）**：本次重构验收时 API 与重构前快照逐字节一致；
+> 之后为了对接 `RiceAnylazeWeb@main`（它是对着后端 `origin/main` 写的），
+> 又新增了 `GET /analysis/models`、`GET /excel/tasks/{id}`、`GET /excel/download/{id}`，
+> 并把 Excel 导出由 base64 JSON 改为二进制 xlsx 字节流。
+> 因此 `verify_refactor.py` 的 OpenAPI 断言已从「逐字节一致」改为
+> 「基线路径一条不少 + 前端所需路径齐全」。详见
+> [新版前端适配说明](frontend-api-adaptation.md)。
+
 ## 验证结果
 
 | 检查 | 结果 | 证据 |
@@ -31,7 +39,7 @@
 | 用户隔离与删除 | 外部用户记录不可读/删；所属记录文件和预览一起删除 | 同上、`test_analysis_repository.py` |
 | 上传、单条/汇总/批量导出、静态预览 | 写入、入队、JSON/ZIP/XLSX 内容与预览读取通过 | 同上 |
 | 任务持久化 | 成功与失败状态、开始/结束时间写入通过 | 同上 |
-| API 合约 | 22 条路径及完整 OpenAPI 完全一致 | `.run/refactor-contract-report.json` |
+| API 合约 | 基线 22 条路径全部保留，另为适配新版前端新增 3 条（共 25 条） | `.run/refactor-contract-report.json` |
 | 指标与 Excel | 18 组计算值、列名/顺序、工作表单元格一致 | 同上 |
 | 真实图片 native leaf | 161 个形状，JSON/JPG 逐字节一致 | `.run/inference-comparison/report.json` |
 | 真实图片 fork leaf_our | 206 个形状，JSON/JPG 逐字节一致，mask_refine=true | 同上 |

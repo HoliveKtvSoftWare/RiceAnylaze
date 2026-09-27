@@ -16,10 +16,42 @@ from app.main import app
 from app.features.export.excel import ExcelDownloadService
 from openpyxl import load_workbook
 
+# 新版前端（RiceAnylazeWeb@main）实际会调用的接口。
+# 重构之后为了让它能直接对接，后端又扩了 /analysis/models 与异步导出
+# /excel/tasks|download，所以这里不再要求和重构前的快照逐字节一致，
+# 而是校验两件事：原有接口一个都不能少，前端要的接口必须都在。
+REQUIRED_FRONTEND_ROUTES = [
+    "/api/analysis/models",
+    "/api/analysis/history",
+    "/api/analysis/upload",
+    "/api/analysis/upload/batch",
+    "/api/analysis/delete/{analysis_id}",
+    "/api/analysis/delete/batch",
+    "/api/excel/columns",
+    "/api/excel/summary",
+    "/api/excel/batch",
+    "/api/excel/{analysis_id}",
+    "/api/excel/tasks/{task_id}",
+    "/api/excel/download/{task_id}",
+    "/api/export/json/{analysis_id}",
+    "/api/export/json/preview/{analysis_id}",
+    "/api/export/json/batch",
+    "/api/export/list",
+]
+
 
 def verify():
     old_api = json.loads((ROOT / ".run/openapi-before.json").read_text(encoding="utf-8"))
-    assert app.openapi() == old_api, "OpenAPI contract changed"
+    current_api = app.openapi()
+
+    # 1) 不破坏既有消费者：基线里的路径必须仍然存在（允许新增）
+    removed_paths = sorted(set(old_api["paths"]) - set(current_api["paths"]))
+    assert not removed_paths, "refactor dropped existing routes: {}".format(removed_paths)
+
+    # 2) 新版前端需要的接口必须齐全
+    missing_routes = sorted(p for p in REQUIRED_FRONTEND_ROUTES if p not in current_api["paths"])
+    assert not missing_routes, "new frontend routes are missing: {}".format(missing_routes)
+
     with zipfile.ZipFile(ROOT / ".run/architecture-baseline-20260922.zip") as archive:
         baseline = types.ModuleType("baseline_excel")
         source = archive.read("app/services/excel_download.py").decode("utf-8-sig")
@@ -63,7 +95,10 @@ def verify():
                     if node.module.startswith(("app.services", "app.database", "app.api.endpoints", "app.core.tasks")):
                         violations.append(str(path.relative_to(ROOT)) + ": " + node.module)
     assert not violations, violations
-    report = {"openapi_identical": True, "paths": len(old_api["paths"]),
+    report = {"baseline_paths": len(old_api["paths"]),
+              "paths": len(current_api["paths"]),
+              "removed_paths": removed_paths,
+              "frontend_routes_missing": missing_routes,
               "metric_and_workbook_cases": cases, "real_leaf_metrics_identical": True,
               "legacy_dependency_violations": violations}
     (ROOT / ".run/refactor-contract-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

@@ -3,6 +3,7 @@
 import os
 import logging
 from datetime import datetime
+from typing import Optional
 
 # 导入我们重构后的、健壮的服务模块
 from app.infrastructure.inference.runner import run_system
@@ -45,7 +46,7 @@ def _mark_started(analysis_id: str) -> None:
 
 
 def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, original_filename: str,
-                      task_type: str = "stem"):
+                      task_type: str = "stem", model_name: Optional[str] = None):
     """
     后台任务主函数，使用原始文件名进行输出。
 
@@ -57,6 +58,7 @@ def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, o
         user_id: 所属用户 ID
         original_filename: 输出用的基础文件名
         task_type: 分析类型，'stem'（茎秆截面，默认）或 'leaf'（剑叶）
+        model_name: 用户在前端选择的模型名，用于留档与失败提示（实际口径由 task_type 决定）
     """
     task = get_task(task_type)
     try:
@@ -111,6 +113,8 @@ def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, o
             analysis_record.status = "completed"
             # 以实际使用的模型类型为准，避免提交时的类型与真实执行不一致
             analysis_record.task_type = task.key
+            analysis_record.model_used = model_name if model_name else "default"
+            analysis_record.error_message = None
             analysis_record.annotated_image_path = annotated_image_path
             analysis_record.result_json_path = json_output_path
             analysis_record.updated_at = finished_at
@@ -129,6 +133,7 @@ def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, o
                 analysis_record = session.exec(statement).one_or_none()
                 if analysis_record:
                     analysis_record.status = "failed"
+                    analysis_record.error_message = _summarize_error(e, model_name)
                     analysis_record.updated_at = datetime.utcnow()
                     # 失败也算一次完整执行，记录结束时间以便统计耗时
                     analysis_record.finished_at = datetime.utcnow()
@@ -140,3 +145,11 @@ def run_full_analysis(analysis_id: str, original_file_path: str, user_id: str, o
 
         # 重新抛出异常，让 FastAPI BackgroundTasks 知道出错了
         raise e
+
+
+def _summarize_error(exc: Exception, model_name: Optional[str]) -> str:
+    """把底层异常转成前端能直接看懂的中文提示，写入 Analysis.error_message。"""
+    if isinstance(exc, FileNotFoundError) and "模型文件不存在" in str(exc):
+        return f"未部署该模型: {model_name if model_name else 'default'}"
+    message = str(exc) if str(exc) else exc.__class__.__name__
+    return message[:500]

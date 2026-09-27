@@ -36,6 +36,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 导出接口用 Content-Disposition 传中文文件名，跨域下浏览器需要这个头才能读到
+    expose_headers=["Content-Disposition"],
 )
 
 # 挂载认证和用户管理路由

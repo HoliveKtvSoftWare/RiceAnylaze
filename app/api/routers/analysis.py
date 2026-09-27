@@ -10,6 +10,22 @@ from app.features.analysis import history_service, statistics_service, file_serv
 
 router = APIRouter()
 
+@router.get("/models")
+async def get_available_models(
+    group: Optional[str] = None,
+    user: UserTable = Depends(current_active_user)
+):
+    """新版前端的模型选择器数据源："分析类型（模型）"下拉框。
+
+    返回 ``{"models": [{"name", "path", "key", "group"}], "default": name}``。
+    前端的 select 把 ``name`` 同时当作 value 和展示文本，并在上传时原样作为
+    ``model_name`` 回传；后端用 ``resolve_task_type`` 把它解析回 task key。
+
+    可选参数 group：按大类过滤（stem=茎秆 / leaf=剑叶），不传时返回全部。
+    """
+    return await history_service.get_available_models(group=group)
+
+
 @router.get("/tasks")
 async def get_analysis_tasks(
     group: Optional[str] = None,
@@ -73,6 +89,9 @@ async def get_analysis_queue(
 async def upload_image(
     file: UploadFile = File(...),
     task_type: str = Form("stem"),
+    model_name: Optional[str] = Form(None),
+    batch_id: Optional[str] = Form(None),
+    batch_name: Optional[str] = Form(None),
     user: UserTable = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session)
 ):
@@ -80,15 +99,26 @@ async def upload_image(
     接收用户上传：保存文件，创建记录，排入分析队列（串行执行）。
     单文件上传时自动创建批次。
 
-    task_type: 分析类型（stem=茎秆截面，默认 / leaf=剑叶），未知值回退为 stem。
+    分析类型二选一（同时传时 model_name 优先）：
+      model_name: 新版前端从 /analysis/models 拿到并回传的模型名（key 或中文显示名）
+      task_type:  分析类型 key（stem=茎秆截面，默认 / leaf=剑叶），未知值回退为 stem
+
+    batch_id / batch_name：前端一次"选择多张单图"会把同一个 batch_id 发给每张图，
+    后端复用它，使这批图在历史里归为同一批次；批次名用于前端展示。
     """
-    return await file_service.upload_image(file=file, task_type=task_type, user=user, repository=AnalysisRepository(db))
+    return await file_service.upload_image(
+        file=file, task_type=task_type, model_name=model_name,
+        batch_id=batch_id, batch_name=batch_name,
+        user=user, repository=AnalysisRepository(db))
 
 
 @router.post("/upload/batch")
 async def upload_images_batch(
     files: List[UploadFile] = File(...),
     task_type: str = Form("stem"),
+    model_name: Optional[str] = Form(None),
+    batch_id: Optional[str] = Form(None),
+    batch_name: Optional[str] = Form(None),
     user: UserTable = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session)
 ):
@@ -98,9 +128,13 @@ async def upload_images_batch(
     与逐个上传的区别：一次请求建一个批次、写 1 次批次记录，
     并且这 N 张图会连续排在队列里依次执行（单 worker，不会并发跑）。
 
-    task_type: 分析类型（stem=茎秆截面，默认 / leaf=剑叶）；整批使用同一类型。
+    分析类型二选一（同时传时 model_name 优先）：model_name / task_type；
+    整批使用同一类型。batch_name 为该批次展示名（如文件夹名）。
     """
-    return await file_service.upload_images_batch(files=files, task_type=task_type, user=user, repository=AnalysisRepository(db))
+    return await file_service.upload_images_batch(
+        files=files, task_type=task_type, model_name=model_name,
+        batch_id=batch_id, batch_name=batch_name,
+        user=user, repository=AnalysisRepository(db))
 
 
 @router.delete("/delete/{analysis_id}")

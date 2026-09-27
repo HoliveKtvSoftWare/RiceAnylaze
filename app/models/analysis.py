@@ -3,10 +3,14 @@
 import uuid
 from datetime import datetime
 from typing import Optional
+from pydantic import ConfigDict
 from sqlmodel import Field, SQLModel
 # 确保这里没有 'from app.models.analysis import Analysis' 这一行
 
 class Analysis(SQLModel, table=True):
+    # model_used 以 "model_" 开头，会撞上 pydantic 的受保护命名空间；这里显式放开。
+    model_config = ConfigDict(protected_namespaces=())
+
     __tablename__ = "analyses" # 定义数据库表名
 
     # --- 核心字段 ---
@@ -34,3 +38,11 @@ class Analysis(SQLModel, table=True):
     # --- 批量上传支持 ---
     batch_id: Optional[uuid.UUID] = Field(default=None, index=True) # 批次ID，用于批量上传
     batch_index: Optional[int] = Field(default=None) # 在批次中的序号
+
+    # --- 模型选择 ---
+    # 本次分析实际使用的分析类型/模型 key（对应 task_catalog 的 key，如 stem、leaf_our）
+    model_used: Optional[str] = Field(default=None)
+
+    # --- 失败原因 ---
+    # 后台任务失败时的中文描述，供前端直接展示
+    error_message: Optional[str] = Field(default=None)

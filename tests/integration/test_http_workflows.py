@@ -1,5 +1,5 @@
 """HTTP workflows over an isolated SQLite database; no production startup."""
-import base64
+import asyncio
 import io
 import json
 import shutil
@@ -22,6 +22,7 @@ from app.models.user import UserTable
 from app.features.analysis import queue
 from app.features.analysis import service as analysis_service
 from app.features.export import excel
+from app.features.export.responses import XLSX_MEDIA_TYPE
 from app.infrastructure.storage.previews import ensure_preview, preview_path_for
 
 
@@ -191,9 +192,91 @@ class HttpWorkflowTests(unittest.IsolatedAsyncioTestCase):
         ]:
             response = await self.client.post(endpoint, json=body)
             self.assertEqual(response.status_code, 200, response.text)
-            workbook = load_workbook(io.BytesIO(base64.b64decode(response.json()["content"])))
+            # 新版前端用 responseType:'blob' 接，并靠 Content-Disposition 取中文文件名
+            self.assertEqual(response.headers["content-type"], XLSX_MEDIA_TYPE)
+            self.assertIn("attachment;", response.headers["content-disposition"])
+            self.assertIn("filename*=UTF-8''", response.headers["content-disposition"])
+            workbook = load_workbook(io.BytesIO(response.content))
             self.assertEqual(workbook.active.cell(2, 2).value, 16)
             workbook.close()
+
+    async def test_async_export_reports_progress_then_serves_file(self):
+        # 新版前端调 /excel/summary 时只传 selectedColumns / unit / asyncMode，
+        # 不带 taskType —— 类型由后端按记录推断，这里就走这条真实路径。
+        request = {"selectedColumns": ["filename", "stemArea"], "unit": "um", "scale": 1}
+        response = await self.client.post("/api/excel/summary", json=dict(
+            request, asyncMode=True))
+        self.assertEqual(response.status_code, 200, response.text)
+        submitted = response.json()
+        self.assertTrue(submitted["success"])
+        task_id = submitted["taskId"]
+
+        # 后台线程可能要跑一会儿：轮询到终态为止
+        status = {}
+        for _ in range(100):
+            polled = await self.client.get("/api/excel/tasks/" + task_id)
+            self.assertEqual(polled.status_code, 200, polled.text)
+            status = polled.json()
+            if status["status"] in ("completed", "failed"):
+                break
+            await asyncio.sleep(0.05)
+        self.assertEqual(status["status"], "completed", status)
+        self.assertEqual(status["total"], 1)
+        self.assertTrue(status["downloadUrl"].endswith(task_id))
+
+        downloaded = await self.client.get("/api/excel/download/" + task_id)
+        self.assertEqual(downloaded.status_code, 200, downloaded.text)
+        self.assertEqual(downloaded.headers["content-type"], XLSX_MEDIA_TYPE)
+        workbook = load_workbook(io.BytesIO(downloaded.content))
+        self.assertEqual(workbook.active.cell(2, 2).value, 16)
+        workbook.close()
+
+        missing = await self.client.get("/api/excel/tasks/does-not-exist")
+        self.assertEqual(missing.status_code, 404)
+
+    async def test_models_endpoint_and_model_name_upload(self):
+        response = await self.client.get("/api/analysis/models")
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        by_key = {item["key"]: item for item in payload["models"]}
+        self.assertIn("stem", by_key)
+        self.assertTrue(by_key["stem"]["path"])
+        self.assertEqual(by_key["stem"]["group"], "stem")
+        # 默认模型是 stem（列表首项），下拉框展示的是中文显示名
+        self.assertEqual(payload["default"], by_key["stem"]["name"])
+
+        stem_only = await self.client.get("/api/analysis/models?group=stem")
+        self.assertEqual([item["key"] for item in stem_only.json()["models"]], ["stem"])
+        bad_group = await self.client.get("/api/analysis/models?group=nope")
+        self.assertEqual(bad_group.status_code, 400)
+
+        # 前端把 select 的 value（中文显示名）原样作为 model_name 回传
+        display_name = by_key["stem"]["name"]
+        buffer = io.BytesIO()
+        Image.new("RGB", (16, 16), "white").save(buffer, format="PNG")
+        upload = await self.client.post("/api/analysis/upload", files={
+            "file": ("model.png", buffer.getvalue(), "image/png"),
+        }, data={"model_name": display_name, "batch_id": "batch_1_abc", "batch_name": "我的批次"})
+        self.assertEqual(upload.status_code, 200, upload.text)
+        body = upload.json()
+        self.assertEqual(body["task_type"], "stem")
+        self.assertEqual(body["model_used"], display_name)
+        record = self.session.get(Analysis, uuid.UUID(body["analysis_id"]))
+        self.assertEqual(record.task_type, "stem")
+        self.assertEqual(record.model_used, display_name)
+
+        # 同一个 client batch_id 的第二张图应复用批次，历史里带上 batchName
+        second = await self.client.post("/api/analysis/upload", files={
+            "file": ("model2.png", buffer.getvalue(), "image/png"),
+        }, data={"model_name": display_name, "batch_id": "batch_1_abc", "batch_name": "我的批次"})
+        self.assertEqual(second.json()["batch_id"], body["batch_id"])
+
+        history = await self.client.get("/api/analysis/history")
+        entries = {item["analysisId"]: item for item in history.json()}
+        entry = entries[body["analysis_id"]]
+        self.assertEqual(entry["modelUsed"], display_name)
+        self.assertIsNone(entry["errorMessage"])
+        self.assertEqual(entry["batchName"], "我的批次")
 
     async def test_cross_user_access_is_rejected_and_delete_removes_owned_files(self):
         foreign_id = str(self.other_record.analysis_id)
