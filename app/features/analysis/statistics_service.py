@@ -9,20 +9,23 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from app.features.task_catalog.catalog import task_types_of_group
-from app.features.task_catalog.types import TASK_GROUP_LEAF, TASK_GROUP_STEM
+from app.features.task_catalog import registry
 
 CN_OFFSET = timedelta(hours=8)
 
 
 def group_of_task_type(task_type: Optional[str]) -> str:
-    """任务类型属于哪个大类；未登记的按剑叶处理（与前端约定一致）。"""
+    """任务属于哪个分析大类（族）。
+
+    未登记的任务类型返回 ``"unknown"`` —— 刻意**不**猜成某一类：猜错会让两个族的
+    统计口径悄悄串台，宁可在统计里单独列出来让人看见。
+    """
     key = str(task_type or "").strip().lower()
-    if key == TASK_GROUP_STEM:
-        return TASK_GROUP_STEM
-    if key in (task_types_of_group(TASK_GROUP_LEAF) or []):
-        return TASK_GROUP_LEAF
-    return TASK_GROUP_LEAF
+    if key in registry.TASK_GROUPS:
+        return key
+    if key in registry.get_tasks():
+        return registry.get_task(key).group
+    return "unknown"
 
 
 def _ascii_utc(value: Optional[datetime]) -> Optional[datetime]:
@@ -105,7 +108,9 @@ async def get_analysis_stats(days, user, repository):
     records = await repository.list(user.id, ordered=False)
 
     by_status: Dict[str, int] = {}
-    by_group: Dict[str, int] = {"stem": 0, "leaf": 0}
+    # 预置所有已注册大类的 0 计数，让前端拿到的 byGroup 形状稳定；
+    # 大类清单来自注册表，新增族时这里自动跟上。
+    by_group: Dict[str, int] = {group: 0 for group in registry.TASK_GROUPS}
     durations: List[float] = []
     for record in records:
         by_status[record.status] = by_status.get(record.status, 0) + 1

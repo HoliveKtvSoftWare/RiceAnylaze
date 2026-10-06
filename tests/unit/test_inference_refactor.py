@@ -14,18 +14,19 @@ class InferenceRefactorTests(unittest.TestCase):
         self.assertIs(legacy.draw_polygons_on_image, renderer.draw_polygons_on_image)
         self.assertIs(legacy.run_system, runner.run_system)
 
-    def test_task_catalog_is_the_source_of_legacy_registry_exports(self):
-        catalog = importlib.import_module("app.features.task_catalog.catalog")
+    def test_task_registry_is_the_source_of_legacy_registry_exports(self):
+        registry = importlib.import_module("app.features.task_catalog.registry")
         legacy = importlib.import_module("app.core.tasks")
 
-        self.assertIs(legacy.get_task, catalog.get_task)
-        self.assertIs(legacy.TaskSpec, catalog.TaskSpec)
+        self.assertIs(legacy.get_task, registry.get_task)
+        self.assertIs(legacy.TaskSpec, registry.TaskSpec)
 
     def test_sidecar_reports_missing_result_file_and_preserves_protocol(self):
         from app.features.task_catalog.types import TaskSpec
         from app.infrastructure.inference.sidecar import _task_spec, run_via_sidecar
 
-        task = TaskSpec("test", "Test", "model.pt", {"out": (1, 2, 3, 4)})
+        task = TaskSpec(key="test", name="Test", group="stem",
+                        model_path="model.pt", colors={"out": (1, 2, 3, 4)})
         self.assertEqual(_task_spec(task)["colors"], {"out": [1, 2, 3, 4]})
         with patch("app.infrastructure.inference.sidecar.open", mock_open()), \
                 patch("app.infrastructure.inference.sidecar.os.path.exists", return_value=False), \
@@ -54,7 +55,7 @@ class InferenceRefactorTests(unittest.TestCase):
         from app.features.task_catalog.types import TaskSpec
         from app.infrastructure.inference.sidecar import run_via_sidecar
 
-        task = TaskSpec("test", "Test", "model.pt", {})
+        task = TaskSpec(key="test", name="Test", group="stem", model_path="model.pt", colors={})
         result = '{"ok": true, "annotated_image_path": "a.jpg", "result_json_path": "a.json"}'
         handle = mock_open(read_data=result)
         with patch("app.infrastructure.inference.sidecar.open", handle), \

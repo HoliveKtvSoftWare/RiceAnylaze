@@ -14,6 +14,7 @@ os.chdir(str(ROOT))
 
 from app.main import app
 from app.features.export.excel import ExcelDownloadService
+from app.features.task_catalog import registry
 from openpyxl import load_workbook
 
 # 新版前端（RiceAnylazeWeb@main）实际会调用的接口。
@@ -79,8 +80,13 @@ def verify():
         source = archive.read("app/services/excel_download.py").decode("utf-8-sig")
         exec(compile(source, "baseline_excel.py", "exec"), baseline.__dict__)
     old, new = baseline.ExcelDownloadService(), ExcelDownloadService()
-    assert old.stem_columns == new.stem_columns
-    assert old.leaf_columns == new.leaf_columns
+    # 新结构把「族」的列定义与指标算法搬到了 families/，这里从族取；
+    # 基线只有一个 ExcelDownloadService。两侧比的是**数值**，不是方法名 ——
+    # 所以基线用它的 _load_*_metrics，新结构用族的 compute_metrics。
+    stem_family = registry.family_of("stem")
+    leaf_family = registry.family_of("leaf")
+    assert old.stem_columns == stem_family.columns
+    assert old.leaf_columns == leaf_family.columns
     data = {"shapes": [
         {"label": label, "points": [[0, 0], [8, 0], [8, 4], [0, 4]], "flags": {}}
         for label in ["big", "small", "in", "out", "body1", "body2", "side1", "side2",
@@ -88,12 +94,16 @@ def verify():
     ]}
     cases = 0
     for task in ("stem", "leaf"):
+        old_method = "_load_" + task + "_metrics"
+        new_compute = registry.family_of(task).compute_metrics
         for unit in ("um", "mm", "cm"):
             for scale in (1, 2.5, 500):
-                method = "_load_" + task + "_metrics"
-                a, b = getattr(old, method)(data, unit, scale), getattr(new, method)(data, unit, scale)
+                a = getattr(old, old_method)(data, unit, scale)
+                b = new_compute(data, unit, scale)
                 assert a == b, (task, unit, scale)
-                columns = list(old.get_available_columns(task))
+                # 列清单直接取基线自己的属性：基线里的 get_available_columns 会去读
+                # TaskSpec.metrics，而该字段已改名为 group（基线是历史快照，不追改）
+                columns = list(getattr(old, task + "_columns"))
                 a["filename"] = b["filename"] = "fixture"
                 old_xlsx = old.export_all_to_excel([a], columns, task)
                 new_xlsx = new.export_all_to_excel([b], columns, task)
@@ -106,7 +116,7 @@ def verify():
         result_path = ROOT / ".run/inference-comparison" / task / "migrated/comparison.json"
         if result_path.exists():
             result = json.loads(result_path.read_text())
-            assert old._load_leaf_metrics(result, "um", 2.5) == new._load_leaf_metrics(result, "um", 2.5)
+            assert old._load_leaf_metrics(result, "um", 2.5) == leaf_family.compute_metrics(result, "um", 2.5)
 
     # Infrastructure and domain should not depend back on compatibility modules.
     violations = []

@@ -18,7 +18,7 @@ os.chdir(BACKEND_DIR)
 os.environ.setdefault('YOLO_CONFIG_DIR', os.path.join(BACKEND_DIR, '.ultralytics'))
 
 from app.core.config import settings
-from app.features.task_catalog.catalog import get_task, get_tasks
+from app.features.task_catalog import get_task, get_tasks
 from app.infrastructure.inference.runner import run_system
 
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else r'D:\Code\data_out_excel\测试数据\10-1.tif'

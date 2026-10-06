@@ -25,10 +25,14 @@ app/
   features/
     analysis/{service,history_service,statistics_service,file_service,queue}.py
     export/{service,excel,schemas}.py
-    task_catalog/{catalog,types}.py
+    task_catalog/
+      {types,registry}.py          结构类型与注册表（族无关）
+      families/{stem,leaf}.py      各族：模型清单 + 导出列 + 后处理参数
   domain/
     geometry/                     轮廓/拓扑/side 归属
-    analysis/metrics.py           茎秆/剑叶指标
+    analysis/
+      metrics_common.py            两族共用的几何与单位换算
+      families/{stem,leaf}.py      各族的指标算法
   infrastructure/
     database/{session,migrations,repositories}.py
     storage/{files,previews,results}.py
@@ -108,3 +112,29 @@ tests/{unit,integration,e2e}/      按测试边界归类
 
 **顺带修**：`app/features/analysis/statistics_service.py` 原本从 `catalog` 取
 `TASK_GROUP_LEAF/STEM`（catalog 只是顺手转发 `types` 的定义），改为直接从 `types` 取。
+
+## 后续变更：按「分析大类」解耦（2026-09-27）
+
+原来茎秆与剑叶的模型清单、导出列、指标算法混在共享文件里（`catalog.py`、
+`metrics.py`、`excel.py`），两个人同时改必然冲突；"族"的概念还被硬编码在 6 处
+（`types.group` 推导、指标分派、列分派、`statistics_service` 里
+"未登记的按剑叶处理"、前端 `schemaOfTask`）。
+
+改成 **族插件**：每族一个族定义（模型清单 + 导出列 + 后处理参数）与一份指标算法，
+共享核心只通过 `TaskFamily` 接口访问族，不认识任何族名。
+
+- `features/task_catalog/catalog.py` → `registry.py`（共享核心）
+- 新增 `features/task_catalog/families/{stem,leaf}.py`
+- `domain/analysis/metrics.py` → `metrics_common.py` + `families/{stem,leaf}.py`
+- `TaskSpec.metrics` → `TaskSpec.group`（**必填**，去掉 `"stem"` 默认值 ——
+  忘填就静默变成茎秆是个隐患）；保留只读别名 `metrics` 供历史快照与仓库外旧脚本使用
+- 导出列与指标算法改为查注册表（`columns_for` / `compute_metrics`），
+  `export/excel.py` 里不再有任何族判断；`statistics_service` 不再"猜成剑叶"，
+  未登记的类型归 `unknown`
+- `/analysis/history` 每条记录多返回 `group`，前端不再自己用 `task_type` 猜族
+- 实测：18 组指标与重构前基线逐值一致，Excel 单元格一致
+
+细节与「怎么加第三个大类」见 [分析大类（族）拆分说明](task-families.md)。
+边界由 `tests/unit/test_family_boundaries.py` 强制（共享核心不许出现族名、
+不许直接 import 族、列与算法 key 必须对齐、假族可插拔）。
+

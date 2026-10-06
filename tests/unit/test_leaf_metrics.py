@@ -3,8 +3,6 @@ import unittest
 
 class LeafMetricTopologyTests(unittest.TestCase):
     def test_leaf_metrics_use_net_topology_area(self):
-        from app.features.export.excel import ExcelDownloadService
-
         analysis_data = {
             "shapes": [
                 {
@@ -22,7 +20,8 @@ class LeafMetricTopologyTests(unittest.TestCase):
             ]
         }
 
-        metrics = ExcelDownloadService()._load_leaf_metrics(analysis_data, "um", 1.0)
+        from app.domain.analysis.families import leaf as leaf_metrics
+        metrics = leaf_metrics.compute(analysis_data, "um", 1.0)
 
         self.assertEqual(metrics["side1Area"], 96.0)
         self.assertEqual(metrics["side1Perimeter"], 48.0)

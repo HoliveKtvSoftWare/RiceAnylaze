@@ -12,7 +12,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
     def test_analysis_service_preserves_configured_sidecar_paths(self):
         from unittest.mock import mock_open, patch
         from app.features.analysis import service
-        from app.features.task_catalog.catalog import get_task
+        from app.features.task_catalog import get_task
 
         result = '{"ok": true, "annotated_image_path": "a.jpg", "result_json_path": "a.json"}'
         with patch.object(service.settings, "FORK_PYTHON", "custom-python"), \

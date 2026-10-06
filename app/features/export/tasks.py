@@ -31,7 +31,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.features.export.excel import excel_service
-from app.features.task_catalog.catalog import get_task
+from app.features.task_catalog import get_task
 
 log = logging.getLogger(__name__)
 

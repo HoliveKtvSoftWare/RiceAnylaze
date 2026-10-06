@@ -27,12 +27,12 @@ class GroupOfTaskTypeTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertEqual(group_of_task_type(key), 'leaf')
 
-    def test_unknown_type_falls_back_to_leaf(self):
+    def test_unknown_type_is_reported_as_unknown(self):
         from app.features.analysis.statistics_service import group_of_task_type
 
-        # 未登记的类型按剑叶处理：统计口径与前端分组保持一致，不会凭空多出一个大类
-        self.assertEqual(group_of_task_type('something_new'), 'leaf')
-        self.assertEqual(group_of_task_type(None), 'leaf')
+        # 未登记的类型归为 unknown，不猜成某一类：猜错会让两个族的统计口径悄悄串台
+        self.assertEqual(group_of_task_type('something_new'), 'unknown')
+        self.assertEqual(group_of_task_type(None), 'unknown')
 
 
 class DurationTests(unittest.TestCase):

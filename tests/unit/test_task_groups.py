@@ -49,7 +49,7 @@ class TaskGroupRegistryTests(unittest.TestCase):
         # 后端共 10 个任务：1 个茎秆 + 9 个剑叶
         self.assertEqual(len(stem) + len(leaf), 10)
 
-    def test_group_is_derived_from_metrics(self):
+    def test_group_is_the_spec_own_field(self):
         from app.core.tasks import get_task
 
         self.assertEqual(get_task("stem").group, "stem")

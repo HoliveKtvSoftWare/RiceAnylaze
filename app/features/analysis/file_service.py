@@ -5,9 +5,7 @@ import logging
 from datetime import datetime
 from fastapi import HTTPException
 from app.core.config import settings
-from app.features.task_catalog.catalog import (
-    get_task, is_valid_task_type, resolve_task_type,
-)
+from app.features.task_catalog import get_task, is_valid_task_type, resolve_task_type
 from app.features.analysis import queue as analysis_queue
 from app.infrastructure.database.repositories import BatchRepository
 from app.infrastructure.storage.previews import ensure_preview

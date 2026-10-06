@@ -1,0 +1,40 @@
+按「分析大类」解耦：茎秆与剑叶各自独立维护
+
+原来两族的模型清单、导出列、指标算法混在共享文件里（catalog.py、metrics.py、
+excel.py），两人同时改必然冲突；"族"的概念还被硬编码在 6 处。
+
+改成族插件：每族一份「族定义」（模型清单 + 导出列 + 后处理参数）和一份「族指标」，
+共享核心只通过 TaskFamily 接口访问族，不认识任何族名。
+
+目录
+- features/task_catalog/catalog.py -> registry.py（共享核心：聚合 + 查询）
+- 新增 features/task_catalog/families/{stem,leaf}.py（★ 各族 owner 的地盘）
+- domain/analysis/metrics.py -> metrics_common.py + families/{stem,leaf}.py
+- 新增 docs/task-families.md：分工说明 + 怎么加第三个大类
+
+接口
+- 新增 TaskFamily(key/label/columns/specs/compute_metrics)，是核心与族之间唯一接口
+- TaskSpec.metrics -> TaskSpec.group，且**必填**（原来默认 "stem"，
+  忘填就静默变成茎秆）；保留只读别名 metrics 供历史快照与仓库外旧脚本过渡
+- registry 新增 family_of / columns_for / compute_metrics / get_families
+- 删除 schema_of / task_keys_of_schema（已被"族"的概念取代）
+
+解耦
+- export/excel.py 不再有任何族判断，列与算法都查注册表
+- statistics_service 不再"未登记就按剑叶处理"，改为归 unknown（不猜）
+- /analysis/history 每条记录多返回 group，前端不再用 task_type 猜族
+- 共享核心里不再出现具体族名（含 4 处 task_type="stem" 默认值，改为 None + 注册表解析）
+
+边界测试（tests/unit/test_family_boundaries.py，7 项）
+1. 共享核心里不出现具体族名字面量
+2. 共享核心不直接 import 具体族（registry 聚合 ALL_FAMILIES 是唯一例外）
+3. 列定义必须覆盖算法产出的全部 key（防止加了指标忘了加列 -> 导出静默变 N/A）
+4. 用临时假族证明「加族 = 加文件 + 注册一行」，核心零改动
+
+验证
+- 97 项测试通过（90 + 7 项新增边界测试）
+- 契约检查 22->25 路径、0 删除、0 缺失
+- 指标基线：18 组用例 + 2 份真实剑叶结果与 2026-09-22 快照逐值一致，
+  Excel 单元格一致（算法零改动）
+- 真实链路自检：按族取模型/列、上传推理、history 带 group、单条与异步导出、
+  stats.byGroup 形状，全部通过

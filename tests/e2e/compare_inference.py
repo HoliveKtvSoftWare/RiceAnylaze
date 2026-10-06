@@ -46,7 +46,7 @@ def run_one(args):
 
 def compare(image_path):
     from app.core.config import settings
-    from app.features.task_catalog.catalog import get_task
+    from app.features.task_catalog import get_task
     image = Path(image_path).resolve()
     assert image.is_file()
     output = ROOT / '.run/inference-comparison'

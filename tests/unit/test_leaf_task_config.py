@@ -5,7 +5,7 @@ class LeafTaskPostprocessConfigTests(unittest.TestCase):
     def test_all_leaf_tasks_enable_topology_side_validation_and_preview_smoothing(self):
         from app.core.tasks import get_tasks
 
-        leaf_tasks = [task for task in get_tasks().values() if task.metrics == "leaf"]
+        leaf_tasks = [task for task in get_tasks().values() if task.group == "leaf"]
 
         self.assertTrue(leaf_tasks)
         for task in leaf_tasks:

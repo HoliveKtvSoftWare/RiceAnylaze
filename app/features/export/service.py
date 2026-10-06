@@ -14,9 +14,8 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.features.export import responses, tasks
 from app.features.export.excel import excel_service
-from app.features.task_catalog.catalog import (
-    normalize_task_type, schema_of, task_keys_of_schema,
-)
+from app.features.task_catalog import registry
+normalize_task_type = registry.normalize_task_type
 from app.infrastructure.storage.results import read_json
 
 log = logging.getLogger(__name__)
@@ -126,21 +125,23 @@ def _record_info(record, user_id, task_type):
 
 
 def _export_task_type(records, requested):
-    """导出用哪套列口径（列定义）。
+    """导出用哪套列口径。
 
-    显式传了 taskType 就用它；否则按记录推断。注意归并的粒度是**口径**而不是
-    精确 task key：``leaf`` / ``leaf_our`` 等共用 leaf 列定义，混在一起合法；
-    而 stem 与 leaf 的列完全不同，混在一张表里没有意义，所以直接报 400。
+    显式传了 taskType 就用它；否则按记录推断。归并的粒度是**分析大类（族）**而不是
+    精确 task key：同一族内的权重（``leaf`` / ``leaf_our`` …）列定义完全相同，
+    混在一起合法；不同族的列完全不同，混在一张表里没有意义，直接报 400。
     """
     if requested:
-        return normalize_task_type(requested)
-    schemas = {schema_of(record.task_type or "stem") for record in records}
-    if len(schemas) > 1:
+        return registry.normalize_task_type(requested)
+    default_task_type = registry.normalize_task_type(None)
+    families = {registry.family_of(record.task_type or default_task_type) for record in records}
+    if len(families) > 1:
         raise HTTPException(
             status_code=400,
-            detail="所选记录同时包含茎秆与剑叶（{}），两者的数据项不同，请分开导出".format(sorted(schemas))
+            detail="所选记录包含不同分析大类（{}），数据项不同，请分开导出".format(
+                "、".join(sorted(family.label for family in families)))
         )
-    return normalize_task_type(records[0].task_type or "stem")
+    return registry.normalize_task_type(records[0].task_type or default_task_type)
 
 
 def _load_valid(records, unit, scale, task_type):
@@ -186,9 +187,10 @@ async def export_all_analysis_to_excel(request_data, user, repository):
     try:
         requested = normalize_task_type(request_data.taskType) if request_data.taskType else None
         if requested:
-            # 按口径取：选了 leaf 就把 leaf / leaf_our … 一起汇总，而不是只要其中一个
+            # 按族取：选了某个族就把该族全部权重（leaf / leaf_our …）一起汇总，而不是只要其中一个
             records = await repository.list(
-                user.id, task_types=task_keys_of_schema(schema_of(requested)),
+                user.id,
+                task_types=registry.task_types_of_group(registry.family_of(requested).key),
                 status="completed",
             )
         else:
@@ -257,7 +259,7 @@ async def export_analysis_to_excel(analysis_id, request_data, user, repository):
         if analysis.status != "completed":
             raise HTTPException(status_code=400, detail="分析记录尚未完成，无法导出")
 
-        task_type = normalize_task_type(analysis.task_type or "stem")
+        task_type = registry.normalize_task_type(analysis.task_type or None)
         analysis_data = excel_service.load_record_data(
             analysis, str(user.id), request_data.unit, request_data.scale, task_type)
         df = excel_service.generate_excel_data(

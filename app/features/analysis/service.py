@@ -11,7 +11,7 @@ from app.infrastructure.inference.runner import run_system
 # 导入数据库相关的工具
 from sqlmodel import Session, select
 from app.core.config import settings
-from app.features.task_catalog.catalog import get_task
+from app.features.task_catalog import get_task
 from app.infrastructure.database.session import sync_engine
 from app.infrastructure.inference.sidecar import run_via_sidecar
 from app.models.analysis import Analysis

@@ -2,9 +2,9 @@
 import os
 import logging
 from fastapi import HTTPException
-from app.features.task_catalog.catalog import (
+from app.features.task_catalog import (
     is_valid_task_group, task_types_of_group, list_tasks,
-    list_models, default_model_name,
+    list_models, default_model_name, get_task, get_tasks, TASK_GROUPS,
 )
 from app.infrastructure.database.repositories import BatchRepository
 from app.infrastructure.storage.files import path_to_static_url, original_filename
@@ -67,6 +67,14 @@ async def get_analysis_history(request, task_type, group, user, repository):
         user.id, [record.batch_id for record in history_records]
     )
 
+    # 任务 -> 所属族。一次建表，避免每条记录都重建注册表。
+    # 前端据此把记录归到"茎秆 / 剑叶"页并选择对应的导出列，
+    # 不必自己用 task_type 猜族（新增族时前端零改动）。
+    tasks = get_tasks()
+    task_groups = {spec.key: spec.group for spec in tasks.values()}
+    default_task_type = get_task(None).key
+    default_group = get_task(None).group
+
     base_url = str(request.base_url)
     history_with_urls = []
     for record in history_records:
@@ -86,7 +94,8 @@ async def get_analysis_history(request, task_type, group, user, repository):
 
         history_with_urls.append({
             "analysisId": record.analysis_id,
-            "taskType": record.task_type or "stem",
+            "taskType": record.task_type or default_task_type,
+            "group": task_groups.get((record.task_type or "").strip().lower(), default_group),
             "batchId": str(record.batch_id) if record.batch_id else None,
             "batchIndex": record.batch_index,
             "batchName": batch_names.get(record.batch_id),
