@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # 与后端环境（8.3.27）不兼容；这些任务会用下面这个解释器在子进程里执行。
     FORK_PYTHON: str = r"D:\Anaconda\envs\yolo\python.exe"
     # 子进程要用的 ultralytics 运行时（项目自有副本，含带 mask_refine 的检测头）。
-    # 由 RiceAnylaze/deploy/build_refine_ultralytics.py 生成；不要指向会被人为改动的活目录。
+    # 由 RiceAnylaze/deploy/runtime/build_refine_ultralytics.py 生成；不要指向会被人为改动的活目录。
     FORK_PROJECT: str = str(BACKEND_ROOT / ".ultra_refine")
     # 额外依赖目录（einops / timm / safetensors / basicsr 桩 等，放在工作区内不污染环境）
     FORK_PYLIBS: str = str(BACKEND_ROOT / ".pylibs")

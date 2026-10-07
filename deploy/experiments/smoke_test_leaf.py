@@ -7,7 +7,7 @@
       -> YOLO 推理 -> /static 静态图 -> Excel 导出
 
 用法：
-    python RiceAnylaze/deploy/smoke_test_leaf.py [剑叶图片] [茎秆图片]
+    python RiceAnylaze/deploy/experiments/smoke_test_leaf.py [剑叶图片] [茎秆图片]
 默认：
     剑叶图 D:\\Code\\data_out_excel\\测试数据\\10-1.tif
     茎秆图 D:\\Code\\python\\yolo_program\\水稻数据集\\21c-02.png

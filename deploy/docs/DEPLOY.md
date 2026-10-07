@@ -32,14 +32,14 @@ npm run build
 
 ```bat
 cd /d D:\Code\Rice_system
-RiceAnylaze\deploy\start-all.cmd
+RiceAnylaze\deploy/runtime/start-all.cmd
 ```
 
 也可以分别启动：
 
 ```bat
-RiceAnylaze\deploy\start-backend.cmd
-RiceAnylaze\deploy\start-frontend.cmd
+RiceAnylaze\deploy/runtime/start-backend.cmd
+RiceAnylaze\deploy/runtime/start-frontend.cmd
 ```
 
 访问前端：`http://localhost:5173/`；接口文档：`http://localhost:8000/docs`。
@@ -47,7 +47,7 @@ RiceAnylaze\deploy\start-frontend.cmd
 状态检查：
 
 ```bat
-RiceAnylaze\deploy\status.cmd
+RiceAnylaze\deploy/runtime/status.cmd
 ```
 
 停止脚本不会关闭本机 PostgreSQL；本机数据库由 Windows 服务管理。
@@ -60,7 +60,7 @@ RiceAnylaze\deploy\status.cmd
 
 ```bat
 cd /d D:\Code\Rice_system\RiceAnylaze
-D:\Anaconda\envs\yolo\python.exe deploy\build_refine_ultralytics.py --check
+D:\Anaconda\envs\yolo\python.exe deploy/runtime/build_refine_ultralytics.py --check
 ```
 
 检测头说明见 `RiceAnylaze/deploy/REFINE_HEAD.md`。
@@ -73,6 +73,6 @@ D:\Anaconda\envs\yolo\python.exe deploy\build_refine_ultralytics.py --check
 
 ## 常见问题
 
-* 页面 502：确认后端已在 8000 端口运行，再执行 `RiceAnylaze\deploy\status.cmd`。
+* 页面 502：确认后端已在 8000 端口运行，再执行 `RiceAnylaze\deploy/runtime/status.cmd`。
 * `/static` 图片 404：必须从 `RiceAnylaze` 目录启动后端，以便正确读取 `.env` 的相对路径。
 * 数据库认证失败：检查本机 PostgreSQL 服务、`RiceAnylaze\.env` 中的 `DATABASE_URL` 和账户密码。

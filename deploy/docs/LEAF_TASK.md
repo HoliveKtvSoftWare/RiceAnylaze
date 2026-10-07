@@ -39,7 +39,7 @@
 > `OUR-best.pt` 的总 IoU 只有 0.321，而且**会把两条侧脉合并成一个大区域**
 > （side1 面积 5.27 倍、side2 只剩 0.23 倍，side2 IoU = 0.000）；
 > `yolov11_p2_best(exp59)` 则达到 0.700，两条侧脉都能正确分开（side1/side2 IoU 0.67/0.47）。
-> 复现脚本：`python deploy/eval_leaf_models.py 640 3`。
+> 复现脚本：`python deploy/experiments/eval_leaf_models.py 640 3`。
 >
 > 另外已确认：**这 5 个剑叶权重都不需要 `D:\Code\ultralytics-main\ultralytics\nn\Addmodules`
 > 或改过的 `head.py`** —— 解包 `.pt` 内部的 pickle 引用，它们只引用原版类
@@ -154,7 +154,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      "http://127.0.0.1:5173/api/excel/<analysis_id>"
 ```
 
-**验证脚本**：`python deploy/smoke_test_leaf.py [剑叶图] [茎秆图]` —— 覆盖登录、任务列表、列定义、
+**验证脚本**：`python deploy/experiments/smoke_test_leaf.py [剑叶图] [茎秆图]` —— 覆盖登录、任务列表、列定义、
 剑叶上传→推理→标注图→Excel 指标、茎秆回归、混合类型批量导出被拒，实测 **18/18 通过**。
 
 ---

@@ -12,7 +12,7 @@
    头都没有这个模块 —— 加载时会被静默丢弃、refinement 不生效，掩膜明显偏胖。
 
 两者统一由项目自有的运行时副本 `.ultra_refine`（内核 8.4.23 fork + 带 refinement 的
-检测头）承担，见 deploy/build_refine_ultralytics.py。为了不破坏后端已验证的环境，
+检测头）承担，见 deploy/runtime/build_refine_ultralytics.py。为了不破坏后端已验证的环境，
 后端在遇到 runtime="fork" 的任务时，用**另一个解释器**把本脚本作为子进程启动，
 由它完成推理并写出结果文件。
 
@@ -34,7 +34,7 @@ import traceback
 BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 WORKSPACE = os.path.dirname(BACKEND_DIR)
 # 推理运行时：项目自有的 ultralytics 副本（内核 8.4.23 fork + 带 mask_refine 的检测头），
-# 由 deploy/build_refine_ultralytics.py 生成，自包含、不依赖任何活目录。
+# 由 deploy/runtime/build_refine_ultralytics.py 生成，自包含、不依赖任何活目录。
 # 后端通过环境变量 RICE_FORK_PROJECT 指定；缺省用下面这个。
 DEFAULT_FORK_PROJECT = os.path.join(BACKEND_DIR, '.ultra_refine')
 FORK_PROJECT = os.environ.get('RICE_FORK_PROJECT') or DEFAULT_FORK_PROJECT

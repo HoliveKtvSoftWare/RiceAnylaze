@@ -6,7 +6,7 @@ Rice_system 部署后的端到端冒烟测试。
 链路：本脚本 -> 前端服务器(5173) -> /api 反向代理 -> FastAPI(8000) -> PostgreSQL(5432) -> YOLO 推理 -> /static 静态图
 
 用法：
-    python RiceAnylaze/deploy/smoke_test.py [测试图片路径]
+    python RiceAnylaze/deploy/experiments/smoke_test.py [测试图片路径]
 环境变量：
     BASE_URL   默认 http://127.0.0.1:5173
     TEST_EMAIL / TEST_PASSWORD  测试账号（会尝试注册，已存在则直接登录）

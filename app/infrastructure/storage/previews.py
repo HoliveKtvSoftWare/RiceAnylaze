@@ -12,7 +12,7 @@
 （长边 <= 1600、质量 85），历史接口优先返回它的 URL，原图 URL 仍然保留
 （`originalFileUrl`）供下载。预览图放在静态目录内，无需新增路由或鉴权。
 
-旧记录（本功能上线前上传的）可用 `RiceAnylaze/deploy/backfill_previews.py` 批量补齐；
+旧记录（本功能上线前上传的）可用 `RiceAnylaze/deploy/maintenance/backfill_previews.py` 批量补齐；
 此外历史接口还带一层**按需兜底**（`ensure_preview_cached`）：预览缺失时现场补一张，
 所以"删了预览但原图还在"的记录下次打开历史就会自动恢复，不再长期显示占位提示。
 兜底带失败负缓存，避免前端 2 秒一次的轮询反复解码同一张坏图。

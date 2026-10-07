@@ -15,14 +15,14 @@
 本脚本把用户那份带 refinement 的头装进一份项目自有的 ultralytics 副本：
 
     .ultra_refine/ultralytics/              内核 = 旧项目 fork(8.4.23，含 nn/Addmodules)
-      nn/modules/head.py                    = deploy/heads/head_mask_refine.py + 代次垫片
+      nn/modules/head.py                    = deploy/runtime/heads/head_mask_refine.py + 代次垫片
       models/yolo/segment/predict.py        打补丁：兼容经典代次头的 proto 返回结构
 
 装完以后 `.ultra_refine` 自包含，运行时不再依赖 D:\\Code\\yolov11-main-old。
 
 用法：
-    python deploy/build_refine_ultralytics.py            # 构建/重建
-    python deploy/build_refine_ultralytics.py --check    # 只检查现状，不重建
+    python deploy/runtime/build_refine_ultralytics.py            # 构建/重建
+    python deploy/runtime/build_refine_ultralytics.py --check    # 只检查现状，不重建
 """
 import argparse
 import hashlib
@@ -45,7 +45,7 @@ HEAD_MD5 = '578396A9D94145E2086DF1288967D178'
 
 ALIAS_SHIM = '''
 
-# ===== 代次垫片（由 deploy/build_refine_ultralytics.py 追加，勿手工删除）=====
+# ===== 代次垫片（由 deploy/runtime/build_refine_ultralytics.py 追加，勿手工删除）=====
 # 本文件是 8.3 代次的头（带 mask_refine），而本运行时内核是 8.4.23；
 # 内核的 nn/modules/__init__.py 与 nn/tasks.py 会 import 四个 YOLO26 变体，
 # 本文件没有它们，这里别名到基类。项目内所有权重都不含 YOLO26 结构

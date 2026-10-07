@@ -29,8 +29,8 @@ model.29.mask_refine.2.weight (32,32,3,3)   model.29.mask_refine.2.bias
 ## 二、集成方案
 
 ```
-deploy/heads/head_mask_refine.py          带 MaskRefinement 的检测头（项目内保存，MD5 578396A9…）
-deploy/build_refine_ultralytics.py        构建下面的运行时（可重复执行）
+deploy/runtime/heads/head_mask_refine.py          带 MaskRefinement 的检测头（项目内保存，MD5 578396A9…）
+deploy/runtime/build_refine_ultralytics.py        构建下面的运行时（可重复执行）
 D:\Code\Rice_system\RiceAnylaze\.ultra_refine\        项目自有的 ultralytics 运行时（自包含，勿手工改）
     ultralytics/                          内核 = 旧项目 fork 8.4.23（含 nn/Addmodules）
       nn/modules/head.py                  = head_mask_refine.py + 3 处适配补丁
@@ -43,7 +43,7 @@ D:\Code\Rice_system\RiceAnylaze\.ultra_refine\        项目自有的 ultralytic
 |---|---|
 | `app/core/config.py` | 新增 `FORK_PROJECT`（默认 `.ultra_refine`） |
 | `app/services/analysis_service.py` | 传 `RICE_FORK_PROJECT` 环境变量给旁路子进程 |
-| `deploy/sidecar_infer.py` | 从 `RICE_FORK_PROJECT` 取运行时目录；启动时打印 `mask_refine=` 自检；结果 JSON 带 `runtime`/`mask_refine` |
+| `deploy/runtime/sidecar_infer.py` | 从 `RICE_FORK_PROJECT` 取运行时目录；启动时打印 `mask_refine=` 自检；结果 JSON 带 `runtime`/`mask_refine` |
 | `app/core/tasks.py` | `leaf_our` / `leaf_v11_head` / `leaf_v11_p2_head` 的 runtime 由 `native` 改为 `fork` |
 
 为什么走子进程：内核必须是 8.4.23 fork（对比方法权重的 `nn/Addmodules`、`C2f_Faster_EMA`
@@ -68,10 +68,10 @@ D:\Code\Rice_system\RiceAnylaze\.ultra_refine\        项目自有的 ultralytic
 
 ```bat
 :: 1) 运行时自检（应输出 mask_refine 生效: True）
-D:\Anaconda\envs\yolo\python.exe deploy\build_refine_ultralytics.py --check
+D:\Anaconda\envs\yolo\python.exe deploy/runtime/build_refine_ultralytics.py --check
 
 :: 2) 端到端：真实旁路通道跑全部任务（后端环境）
-D:\Anaconda\envs\fastapi\python.exe deploy\verify_refine_tasks.py
+D:\Anaconda\envs\fastapi\python.exe deploy/experiments/verify_refine_tasks.py
 ```
 
 实测结果（2026-09-15）：
@@ -87,11 +87,11 @@ D:\Anaconda\envs\fastapi\python.exe deploy\verify_refine_tasks.py
 
 ```bat
 :: 重建（头有改动时执行；会清空 .ultra_refine）
-D:\Anaconda\envs\yolo\python.exe deploy\build_refine_ultralytics.py
+D:\Anaconda\envs\yolo\python.exe deploy/runtime/build_refine_ultralytics.py
 
 :: 用项目运行时复现参考输出（命令行，与 output_OUR-best 逐类一致）
 set PYTHONPATH=D:\Code\Rice_system\RiceAnylaze\.ultra_refine
-D:\Anaconda\envs\yolo\python.exe deploy\yolov11_seg_mask10_patched.py ^
+D:\Anaconda\envs\yolo\python.exe deploy/experiments/yolov11_seg_mask10_patched.py ^
     --images "D:\BaiduNetdiskDownload\rice_notail_data(20260701)" --only 10-1 --save <输出目录>
 
 :: 回退某个任务：把 app/core/tasks.py 里对应 runtime 改回 "native"（会丢 refinement）
@@ -105,7 +105,7 @@ D:\Anaconda\envs\yolo\python.exe deploy\yolov11_seg_mask10_patched.py ^
 
 ## 六、待办
 
-- 重测 exp12 / exp61 / OUR-best 的 IoU（`deploy/eval_leaf_models.py`），更新
+- 重测 exp12 / exp61 / OUR-best 的 IoU（`deploy/experiments/eval_leaf_models.py`），更新
   `deploy/LEAF_TASK.md` 与 `tasks.py` 里的 note。
 - 若日后拿到不含 refinement 的新权重，无需改代码，运行时会自动跳过。
 

@@ -11,7 +11,7 @@
  * 前端也不需要把后端地址打包进产物（VITE_API_BASE_URL=/api）。
  *
  * 用法：
- *   node RiceAnylaze/deploy/serve.mjs [dist目录]
+ *   node RiceAnylaze/deploy/runtime/serve.mjs [dist目录]
  * 环境变量：
  *   PORT=5173              监听端口
  *   HOST=0.0.0.0           监听地址（0.0.0.0 允许局域网访问）

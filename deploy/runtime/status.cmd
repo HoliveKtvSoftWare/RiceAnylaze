@@ -65,6 +65,6 @@ if !FAILS! EQU 0 (
 )
 echo.
 echo 端到端自检（会真的跑一次推理）:
-echo   D:\Anaconda\envs\fastapi\python.exe deploy\smoke_test.py ^<水稻图片路径^>
+echo   D:\Anaconda\envs\fastapi\python.exe deploy/experiments/smoke_test.py ^<水稻图片路径^>
 
 if !FAILS! EQU 0 (endlocal & exit /b 0) else (endlocal & exit /b 1)

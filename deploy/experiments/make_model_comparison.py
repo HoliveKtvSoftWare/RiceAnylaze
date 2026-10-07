@@ -2,10 +2,10 @@
 """把 9 个剑叶模型在同一张图上的分割结果拼成一张对比图。
 
 原生模型（后端环境可加载）直接调用 run_system；
-对比方法（依赖旧 fork）复用 deploy/sidecar_infer.py 的子进程方式。
+对比方法（依赖旧 fork）复用 deploy/runtime/sidecar_infer.py 的子进程方式。
 
 用法（后端环境）：
-    python deploy/make_model_comparison.py [图片路径]
+    python deploy/experiments/make_model_comparison.py [图片路径]
 """
 import json
 import os

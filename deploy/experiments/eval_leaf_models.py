@@ -4,7 +4,7 @@
 剑叶多个权重横向评估（imgsz=640，与训练分辨率一致）。
 
 用法：
-    python deploy/eval_leaf_models.py [imgsz] [图片数]
+    python deploy/experiments/eval_leaf_models.py [imgsz] [图片数]
 
 评估内容：
   1. 逐标签贪心匹配 IoU（与人工标注对比）
